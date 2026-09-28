@@ -1,0 +1,24 @@
+{
+  "bounds": [
+    -96.63946596721946,
+    40.3754356881358,
+    -90.14005154483092,
+    43.50119775858568
+  ],
+  "width": 2048,
+  "height": 0,
+  "model": "v2_darcy",
+  "factors": {
+    "aquifer_productivity": 0.65,
+    "depth_to_bedrock": 0.15,
+    "land_cover": 0.1,
+    "environmental_constraints": 0.1
+  },
+  "stats": {
+    "p2": 57.1,
+    "p50": 74.6,
+    "p98": 83.1,
+    "mean": 73.4,
+    "std": 6.7
+  }
+}

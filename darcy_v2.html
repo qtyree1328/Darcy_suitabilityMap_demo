@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iowa Darcy-Style Geothermal Suitability — V2</title>
+    <script src="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.css" rel="stylesheet" />
+    <style>
+        :root {
+            --panel-bg: rgba(15, 23, 42, 0.94);
+            --panel-border: rgba(255,255,255,0.08);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #3b82f6;
+            --green: #22c55e;
+            --yellow: #eab308;
+            --red: #ef4444;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+        #map { width: 100vw; height: 100vh; }
+
+        /* --- Control Panel --- */
+        .panel {
+            position: absolute;
+            top: 16px; left: 16px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--panel-border);
+            border-radius: 14px;
+            padding: 20px;
+            color: var(--text-primary);
+            width: 320px;
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+            z-index: 10;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        .panel h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+        .panel .subtitle { font-size: 12px; color: var(--text-secondary); margin-top: 2px; margin-bottom: 16px; }
+        .panel .version-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px;
+            font-weight: 700; background: rgba(59,130,246,0.2); color: var(--accent);
+            letter-spacing: 0.05em; margin-left: 6px; vertical-align: middle;
+        }
+        .section-label {
+            font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+            color: var(--text-muted); margin: 14px 0 6px; font-weight: 600;
+        }
+        .layer-toggle {
+            display: flex; align-items: center; gap: 10px;
+            padding: 7px 0; cursor: pointer; font-size: 13px;
+            border-bottom: 1px solid var(--panel-border);
+            transition: color 0.15s;
+        }
+        .layer-toggle:hover { color: #fff; }
+        .layer-toggle input[type="checkbox"] {
+            accent-color: var(--accent); width: 15px; height: 15px;
+        }
+        .opacity-slider { width: 100%; margin: 4px 0 8px; accent-color: var(--accent); height: 4px; }
+        .legend-bar {
+            height: 10px; border-radius: 5px; margin: 6px 0 3px;
+            background: linear-gradient(to right, #7f1d1d, #dc2626, #f97316, #eab308, #a3e635, #16a34a, #166534);
+        }
+        .legend-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); }
+        .weight-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); padding: 2px 0; }
+        .weight-row span:last-child { font-weight: 600; color: var(--text-primary); }
+        .footer { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--panel-border);
+                   font-size: 10px; color: var(--text-muted); line-height: 1.5; }
+
+        .methods-btn {
+            display: inline-block; margin-top: 8px; padding: 5px 12px;
+            background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3);
+            border-radius: 6px; color: var(--accent); font-size: 11px; font-weight: 600;
+            cursor: pointer; transition: background 0.15s;
+        }
+        .methods-btn:hover { background: rgba(59,130,246,0.25); }
+
+        /* --- Methods Modal --- */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 100;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--panel-bg); border: 1px solid var(--panel-border);
+            border-radius: 16px; max-width: 640px; width: 90vw;
+            max-height: 85vh; overflow-y: auto; padding: 28px;
+            color: var(--text-primary); box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+        }
+        .modal h2 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+        .modal .modal-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 18px; }
+        .modal h3 { font-size: 13px; font-weight: 700; color: var(--accent); margin: 18px 0 8px;
+                     text-transform: uppercase; letter-spacing: 0.06em; }
+        .modal p, .modal li { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+        .modal ul { padding-left: 18px; margin: 6px 0; }
+        .modal li { margin-bottom: 4px; }
+        .modal .factor-table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; }
+        .modal .factor-table th { text-align: left; color: var(--text-muted); font-weight: 600;
+            padding: 6px 8px; border-bottom: 1px solid var(--panel-border); font-size: 10px;
+            text-transform: uppercase; letter-spacing: 0.06em; }
+        .modal .factor-table td { padding: 6px 8px; border-bottom: 1px solid var(--panel-border);
+            color: var(--text-secondary); }
+        .modal .factor-table td:first-child { color: var(--text-primary); font-weight: 500; }
+        .modal .close-modal {
+            position: sticky; top: 0; float: right; background: none; border: none;
+            color: var(--text-muted); font-size: 22px; cursor: pointer; padding: 0 4px;
+            line-height: 1;
+        }
+        .modal .close-modal:hover { color: var(--text-primary); }
+        .modal .data-note { font-size: 11px; color: var(--text-muted); margin-top: 14px;
+            padding-top: 12px; border-top: 1px solid var(--panel-border); line-height: 1.6; }
+
+        /* --- Site Inquiry Popup --- */
+        .maplibregl-popup { max-width: 360px !important; }
+        .maplibregl-popup-content {
+            background: var(--panel-bg); backdrop-filter: blur(16px);
+            border: 1px solid var(--panel-border); border-radius: 12px;
+            padding: 0; color: var(--text-primary); box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+            overflow: hidden;
+        }
+        .maplibregl-popup-close-button { color: var(--text-secondary); font-size: 18px; right: 8px; top: 6px; }
+        .maplibregl-popup-tip { border-top-color: var(--panel-bg); }
+
+        .inquiry-header {
+            padding: 16px 16px 12px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+        .inquiry-header h3 { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+        .inquiry-header .coords { font-size: 11px; color: var(--text-muted); font-family: monospace; }
+
+        .score-hero {
+            display: flex; align-items: center; gap: 14px;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+        .score-circle {
+            width: 56px; height: 56px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px; font-weight: 800; flex-shrink: 0;
+        }
+        .score-label { font-size: 12px; color: var(--text-secondary); }
+        .score-desc { font-size: 13px; margin-top: 2px; }
+
+        .factor-grid { padding: 12px 16px; }
+        .factor-row {
+            display: flex; align-items: center; gap: 8px;
+            padding: 5px 0; font-size: 12px;
+        }
+        .factor-bar-bg {
+            flex: 1; height: 6px; background: rgba(255,255,255,0.1);
+            border-radius: 3px; overflow: hidden;
+        }
+        .factor-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+        .factor-name { width: 120px; color: var(--text-secondary); flex-shrink: 0; }
+        .factor-val { width: 32px; text-align: right; font-weight: 600; flex-shrink: 0; }
+
+        .inquiry-footer {
+            padding: 10px 16px; font-size: 10px; color: var(--text-muted);
+            border-top: 1px solid var(--panel-border); text-align: center;
+        }
+
+        .loading-indicator {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: var(--panel-bg); backdrop-filter: blur(12px);
+            padding: 10px 20px; border-radius: 8px; color: var(--text-secondary);
+            font-size: 13px; display: none; z-index: 20;
+            border: 1px solid var(--panel-border);
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="panel">
+        <h1>Iowa Geothermal Suitability <span class="version-badge">V2 DARCY</span></h1>
+        <div class="subtitle">Darcy Solutions — Shallow Geothermal Screening</div>
+
+        <div class="section-label">Layers</div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-suitability" checked>
+            Suitability Score
+        </label>
+        <input type="range" class="opacity-slider" id="opacity-suitability" min="0" max="100" value="70">
+
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-wells" checked>
+            Sourcewater Wells (Iowa DNR)
+        </label>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-landform">
+            Landform Regions (Iowa DNR)
+        </label>
+        <div id="landform-legend" style="display:none; margin: 6px 0 4px 25px; font-size: 11px;">
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#22c55e;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Alluvial Plains (0.80)</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#4ade80;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Iowa-Cedar Lowland (0.70)</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#86efac;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Des Moines Lobe (0.65)</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#fbbf24;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Iowan Surface (0.50)</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#f97316;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Drift Plains / NW Iowa (0.40&ndash;0.45)</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#ef4444;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Paleozoic Plateau (0.35)</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#b91c1c;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Loess Hills (0.25)</span></div>
+        </div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-dtb">
+            Depth to Bedrock Zones
+        </label>
+        <div id="dtb-legend" style="display:none; margin: 6px 0 4px 25px; font-size: 11px;">
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#22c55e;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">50&ndash;150 ft (1.0) Ideal</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#fbbf24;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">20&ndash;50 / 150&ndash;250 ft (0.6)</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#f97316;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">&gt;250 ft (0.3)</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#ef4444;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">0&ndash;20 ft (0.2) Too shallow</span></div>
+        </div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-well-density">
+            Productivity Heatmap
+        </label>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-epa">
+            EPA Constraints
+        </label>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-nlcd">
+            Land Cover (NLCD 2021)
+        </label>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-boundary" checked>
+            State Boundary
+        </label>
+
+        <div class="section-label">Suitability Scale</div>
+        <div class="legend-bar" style="background: linear-gradient(to right, #67000d, #cb181d, #fc9272, #fdae6b, #fee391, #d9f0a3, #78c679, #238443, #004529);"></div>
+        <div class="legend-labels"><span>Low (p2)</span><span>Median</span><span>High (p98)</span></div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Histogram-equalized for visual contrast</div>
+
+        <div class="section-label">Darcy Model Weights (V2)</div>
+        <div class="weight-row"><span>Aquifer Productivity</span><span>65%</span></div>
+        <div class="weight-row"><span>Depth to Bedrock</span><span>15%</span></div>
+        <div class="weight-row"><span>Land Cover</span><span>10%</span></div>
+        <div class="weight-row"><span>Env. Constraints</span><span>10%</span></div>
+
+        <div class="footer">
+            <strong>Click anywhere in Iowa</strong> for an automated site inquiry report.<br><br>
+            <span class="methods-btn" onclick="document.getElementById('methods-modal').classList.add('active')">View Methodology</span><br><br>
+            Author: Quintin Tyree &middot; Tyree Spatial<br>
+            Data: Iowa DNR, USGS NWIS, NLCD 2021, EPA NPL, Census TIGER<br>
+            Processing: Google Earth Engine
+        </div>
+    </div>
+
+    <!-- Methods Modal -->
+    <div class="modal-overlay" id="methods-modal">
+        <div class="modal">
+            <button class="close-modal" onclick="document.getElementById('methods-modal').classList.remove('active')">&times;</button>
+            <h2>Methodology — V2 Darcy-Aligned</h2>
+            <div class="modal-sub">Iowa Darcy-Style Shallow Geothermal Suitability Screening</div>
+
+            <h3>Overview</h3>
+            <p>This map presents a Darcy-aligned multi-criteria geothermal suitability assessment for Iowa, designed specifically for <strong>shallow geothermal screening</strong>. The model targets surficial aquifers shallower than ~150 ft, consistent with Darcy Solutions' closed-loop U-line system that uses heat exchangers submerged in shallow groundwater. The final score (0&ndash;100) is a weighted linear combination of four normalized factor scores, dominated by ground-truth aquifer productivity data.</p>
+
+            <h3>Key Design Principle</h3>
+            <p>Ground-truth well data drives 65% of the suitability score. Rather than using spatial buffers (which create circular blobs and gaps), well productivity is <strong>propagated through geologic similarity</strong>: wells in each Iowa landform region are averaged, and that average applies to the entire geologic province. Where local wells exist nearby, they refine the regional score. The result is a continuous, gap-free map anchored by measured hydrogeologic data.</p>
+
+            <h3>Well Properties &amp; Scoring</h3>
+            <p>Each of the 7,299 Iowa DNR Sourcewater public wells is scored 0&ndash;1 using a weighted average of up to 8 hydrogeologic parameters extracted from the well record:</p>
+            <table class="factor-table">
+                <thead>
+                    <tr><th>Property</th><th>Field</th><th>Weight</th><th>Scoring Thresholds</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Pump Test Yield</td><td>PMPTST_GPM</td><td>3.0</td>
+                        <td>&ge;100 GPM = 1.0, &ge;50 = 0.85, &ge;20 = 0.7, &ge;5 = 0.4, &lt;5 = 0.15</td>
+                    </tr>
+                    <tr>
+                        <td>Specific Capacity</td><td>SPC_GPM_FT</td><td>3.0</td>
+                        <td>&ge;10 GPM/ft = 1.0, &ge;5 = 0.85, &ge;1 = 0.7, &ge;0.2 = 0.4, &lt;0.2 = 0.15 (used when no pump test)</td>
+                    </tr>
+                    <tr>
+                        <td>Transmissivity</td><td>T_FT2_D</td><td>2.5</td>
+                        <td>&ge;2000 ft&sup2;/day = 1.0, &ge;1000 = 0.85, &ge;500 = 0.7, &ge;100 = 0.5, &ge;10 = 0.3, &lt;10 = 0.1</td>
+                    </tr>
+                    <tr>
+                        <td>Hydraulic Conductivity</td><td>K_FT_D</td><td>2.0</td>
+                        <td>&ge;100 ft/day = 1.0 (gravel), &ge;50 = 0.9, &ge;10 = 0.75 (sand), &ge;1 = 0.5, &lt;0.1 = 0.1 (clay)</td>
+                    </tr>
+                    <tr>
+                        <td>Aquifer Type</td><td>AQUIFER</td><td>2.0</td>
+                        <td>Alluvial/sand/gravel/glacial = 0.9, bedrock formations = 0.3, unknown = 0.5</td>
+                    </tr>
+                    <tr>
+                        <td>Static Water Level</td><td>SWL_FT</td><td>1.5</td>
+                        <td>&le;20 ft = 1.0 (very shallow), &le;50 = 0.8, &le;100 = 0.6, &le;200 = 0.4, &gt;200 = 0.2</td>
+                    </tr>
+                    <tr>
+                        <td>Aquifer Thickness</td><td>AQ_THK_FT</td><td>1.5</td>
+                        <td>&ge;100 ft = 1.0, &ge;50 = 0.8, &ge;20 = 0.6, &ge;10 = 0.4, &lt;10 = 0.2</td>
+                    </tr>
+                    <tr>
+                        <td>Well Depth</td><td>WL_DPTH_FT</td><td>1.5</td>
+                        <td>&le;100 ft = 1.0, &le;150 = 0.85 (Darcy target), &le;300 = 0.6, &le;500 = 0.35, &gt;500 = 0.15</td>
+                    </tr>
+                    <tr>
+                        <td>Confined/Unconfined</td><td>CONF_UNCON</td><td>1.0</td>
+                        <td>Unconfined (U) = 0.85 (accessible), Confined (C) = 0.4 (less accessible)</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p>Final well score = weighted average of all <em>available</em> signals (missing fields are skipped, not penalized). High pump test GPM, high transmissivity, shallow unconsolidated aquifers score highest — directly measuring "is this a productive shallow aquifer for heat exchange?"</p>
+
+            <h3>Geologic Propagation</h3>
+            <p>Well scores are propagated to surrounding areas through <strong>geologic similarity</strong>, not spatial buffers or kernel density:</p>
+            <ul>
+                <li>Each of the 7,299 DNR Sourcewater wells is spatially assigned to its <strong>Iowa DNR Landform Region</strong> — a geologic province defined by shared depositional history, surficial material, and hydrogeomorphic character (10 provinces, 28 polygons covering all of Iowa).</li>
+                <li>The <strong>regional productivity</strong> for each province is the average of all well productivity scores within it. Examples:
+                    <ul>
+                        <li>Missouri River Alluvial Plain: 191 wells &rarr; avg 0.873</li>
+                        <li>Des Moines Lobe: 1,176 wells &rarr; avg 0.747</li>
+                        <li>Southern Iowa Drift Plain: 2,646 wells &rarr; avg 0.751</li>
+                        <li>Paleozoic Plateau: 609 wells &rarr; avg 0.614</li>
+                    </ul>
+                </li>
+                <li>This average is <strong>painted onto the entire geologic province</strong> — no gaps, no circular buffers, no fallback values. Areas without nearby wells receive the measured average of wells in the same geology.</li>
+                <li>This works because wells within the same geologic province share the same surficial geology, depositional history, and aquifer characteristics. A well's productivity is representative of its geologic context.</li>
+            </ul>
+
+            <h3>Suitability Factors</h3>
+            <table class="factor-table">
+                <thead>
+                    <tr><th>Factor</th><th>Weight</th><th>Source</th><th>Scoring</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Aquifer Productivity</td><td>65%</td>
+                        <td>Iowa DNR Sourcewater Wells (7,299) propagated via Landform Regions</td>
+                        <td>Pure geologic propagation: average well productivity_score per geologic province, painted onto landform region polygons. No spatial buffers. Continuous statewide coverage.</td>
+                    </tr>
+                    <tr>
+                        <td>Depth to Bedrock</td><td>15%</td>
+                        <td>Iowa Geological Survey contours</td>
+                        <td>50&ndash;150 ft = 1.0, 20&ndash;50 ft = 0.6, 150&ndash;250 ft = 0.6, &gt;250 ft = 0.3, 0&ndash;20 ft = 0.2</td>
+                    </tr>
+                    <tr>
+                        <td>Land Cover</td><td>10%</td>
+                        <td>NLCD 2021</td>
+                        <td>Grassland = 1.0, Agriculture = 0.9, Forest = 0.7, Suburban = 0.5, Urban = 0.2, Wetlands/Water = 0.</td>
+                    </tr>
+                    <tr>
+                        <td>Env. Constraints</td><td>10%</td>
+                        <td>NLCD wetlands + EPA NPL</td>
+                        <td>Wetland/water = 0; Superfund sites (500m buffer) = 0; elsewhere = 1.0.</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Suitability Equation</h3>
+            <p style="font-family: monospace; font-size: 12px; background: rgba(255,255,255,0.04); padding: 12px; border-radius: 8px; line-height: 1.8;">
+                Score = 0.650 &times; AquiferProductivity<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; + 0.150 &times; DepthToBedrock<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; + 0.100 &times; LandCover<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; + 0.100 &times; Constraints<br>
+                <br>
+                AquiferProductivity = avg(well_productivity_score) per geologic province<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;(painted from Iowa DNR Landform Regions, no spatial buffers)<br>
+                <br>
+                Output: 0&ndash;100 (each factor normalized 0&ndash;1, then scaled)
+            </p>
+
+            <h3>Color Ramp</h3>
+            <p>The map overlay uses histogram equalization (p2&ndash;p98) to stretch the actual data distribution across the full color palette. This maximizes visual contrast without changing the underlying data.</p>
+
+            <h3>Site Inquiry (Click Report)</h3>
+            <p>Clicking any location in Iowa generates a site inquiry report. The overall score is a weighted sum of four factor scores computed client-side from loaded vector data (aquifer productivity from the geologic province's well-derived average, depth-to-bedrock zone, EPA buffers). Nearby wells are shown as context but the score comes from the geologic unit, not spatial proximity. These are approximate and intended for rapid screening, not engineering decisions.</p>
+
+            <h3>Limitations</h3>
+            <ul>
+                <li>Regional productivity averages are derived from 7,299 public water supply wells, not private wells. Regions with &lt;3 wells fall back to hand-estimated landform hydro scores.</li>
+                <li>Geologic propagation assumes wells within the same landform region share similar aquifer characteristics. This is a regional approximation — local variation within a province is smoothed.</li>
+                <li>Depth-to-bedrock is interpolated from 50-ft contour intervals; precision is limited between contours.</li>
+                <li>This is a regional screening tool. Site-specific geotechnical investigation is required before installation.</li>
+            </ul>
+
+            <div class="data-note">
+                <strong>Data sources:</strong> Iowa DNR Sourcewater Wells (pump test &amp; hydrogeologic data: GPM, specific capacity, transmissivity, hydraulic conductivity, static water level, aquifer thickness, aquifer type, confined/unconfined), Iowa DNR Landform Regions (geologic propagation of well data), Iowa Geological Survey Depth-to-Bedrock Contours, NLCD 2021, EPA National Priorities List, Census TIGER/Line. All data freely accessible. $0 data cost.<br><br>
+                <strong>Resolution:</strong> 30m (NLCD native grid) &middot; <strong>CRS:</strong> EPSG:4326 (web display) &middot; <strong>Processing:</strong> Google Earth Engine REST API &middot; <strong>Date:</strong> March 2026
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-indicator" id="loading">Loading layers...</div>
+
+    <script>
+    // ============================================================
+    // MAP INITIALIZATION
+    // ============================================================
+    const map = new maplibregl.Map({
+        container: 'map',
+        style: {
+            version: 8,
+            sources: {
+                'carto-dark': {
+                    type: 'raster',
+                    tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
+                    tileSize: 256,
+                    attribution: '&copy; CARTO &copy; OpenStreetMap contributors'
+                }
+            },
+            layers: [{
+                id: 'carto-dark',
+                type: 'raster',
+                source: 'carto-dark'
+            }]
+        },
+        center: [-93.5, 42.0],
+        zoom: 7,
+        maxZoom: 15,
+        minZoom: 5
+    });
+
+    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), 'bottom-right');
+
+    const loading = document.getElementById('loading');
+
+    // Close modal on overlay click
+    document.getElementById('methods-modal').addEventListener('click', function(e) {
+        if (e.target === this) this.classList.remove('active');
+    });
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+    function scoreColor(score) {
+        if (score >= 70) return 'var(--green)';
+        if (score >= 40) return 'var(--yellow)';
+        return 'var(--red)';
+    }
+
+    function scoreLabel(score) {
+        if (score >= 80) return 'Excellent';
+        if (score >= 65) return 'Good';
+        if (score >= 50) return 'Moderate';
+        if (score >= 35) return 'Marginal';
+        return 'Low';
+    }
+
+    function haversine(lat1, lng1, lat2, lng2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function pointInPolygon(x, y, geometry) {
+        let coords;
+        if (geometry.type === 'Polygon') coords = [geometry.coordinates];
+        else if (geometry.type === 'MultiPolygon') coords = geometry.coordinates;
+        else return false;
+        for (const polygon of coords) {
+            const ring = polygon[0];
+            let inside = false;
+            for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                const xi = ring[i][0], yi = ring[i][1];
+                const xj = ring[j][0], yj = ring[j][1];
+                if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi))
+                    inside = !inside;
+            }
+            if (inside) return true;
+        }
+        return false;
+    }
+
+    // ============================================================
+    // SITE INQUIRY — V2 Darcy-aligned 4-factor model (65% aquifer productivity)
+    // ============================================================
+    let wellsData = null, landformData = null, dtbData = null, epaData = null;
+
+    // Hidden canvas to sample suitability overlay pixel colors
+    let overlayCanvas = null, overlayCtx = null, overlayBounds = null;
+
+    function initOverlayCanvas(boundsData) {
+        overlayBounds = boundsData.bounds;
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            overlayCanvas = document.createElement('canvas');
+            overlayCanvas.width = img.width;
+            overlayCanvas.height = img.height;
+            overlayCtx = overlayCanvas.getContext('2d');
+            overlayCtx.drawImage(img, 0, 0);
+            console.log(`V2 overlay canvas ready: ${img.width}x${img.height}`);
+        };
+        img.src = 'data/tiles_v2/suitability_overlay_v2.png';
+    }
+
+    // Landform Hydro Scores (matching GEE model)
+    // A coarse statewide proxy for broad shallow hydrogeologic favorability.
+    // Used because the available surficial geology layer does not provide
+    // adequate statewide coverage. Should be treated as a secondary regional
+    // prior, not a direct substitute for mapped surficial material or aquifer properties.
+    const LANDFORM_HYDRO_SCORES = {
+        'Mississippi River Alluvial Plain': 0.80,
+        'Missouri River Alluvial Plain': 0.80,
+        'Iowa-Cedar Lowland': 0.70,
+        'Des Moines Lobe': 0.65,
+        'Iowan Surface': 0.50,
+        'East-Central Iowa Drift Plain': 0.45,
+        'Southern Iowa Drift Plain': 0.40,
+        'Northwest Iowa Plains': 0.40,
+        'Paleozoic Plateau': 0.35,
+        'Loess Hills': 0.25,
+    };
+
+    function estimateFactors(lngLat) {
+        const { lng, lat } = lngLat;
+
+        // Factor 1: Depth to bedrock (weight: 0.30)
+        let depthToBedrock = 60; // default: moderate (0.6 * 100)
+        let dtbZoneLabel = null;
+        if (dtbData) {
+            for (const f of dtbData.features) {
+                if (f.geometry && pointInPolygon(lng, lat, f.geometry)) {
+                    depthToBedrock = Math.round((f.properties.dtb_score || 0.6) * 100);
+                    const s = f.properties.dtb_score;
+                    if (s === 1.0) dtbZoneLabel = '50\u2013150 ft (ideal)';
+                    else if (s === 0.6) dtbZoneLabel = '20\u201350 or 150\u2013250 ft';
+                    else if (s === 0.3) dtbZoneLabel = '>250 ft (deep)';
+                    else if (s === 0.2) dtbZoneLabel = '0\u201320 ft (too shallow)';
+                    break;
+                }
+            }
+        }
+
+        // Factor 1: Aquifer productivity (weight: 0.65) — PRIMARY FACTOR
+        // Pure geologic propagation: well ground-truth is propagated to ALL areas
+        // via geologic province (landform region). No spatial buffers.
+        // Each region's score = average of all DNR Sourcewater well productivity
+        // scores within that geologic province.
+        let aquiferProd = 50; // default: neutral
+        let landformName = null;
+        let regionalProd = 50;
+        if (landformData) {
+            for (const f of landformData.features) {
+                if (f.geometry && pointInPolygon(lng, lat, f.geometry)) {
+                    landformName = f.properties.LANDFORM_R;
+                    const rp = f.properties.regional_productivity;
+                    if (rp !== undefined && rp !== null) {
+                        aquiferProd = Math.round(rp * 100);
+                        regionalProd = aquiferProd;
+                    } else {
+                        const score = LANDFORM_HYDRO_SCORES[landformName];
+                        aquiferProd = Math.round((score !== undefined ? score : 0.5) * 100);
+                        regionalProd = aquiferProd;
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Nearby wells shown as context in popup (NOT used for scoring)
+        let wellCount = 0;
+        let maxProd = 0;
+        let bestWellAquifer = null;
+        if (wellsData) {
+            for (const f of wellsData.features) {
+                const c = f.geometry.coordinates;
+                const dist = haversine(lat, lng, c[1], c[0]);
+                if (dist < 15) {
+                    wellCount++;
+                    const ps = f.properties.productivity_score || 0;
+                    if (ps > maxProd) {
+                        maxProd = ps;
+                        bestWellAquifer = f.properties.AQUIFER || null;
+                    }
+                }
+            }
+        }
+
+        // Factor 2: Land cover (weight: 0.10) — default: agricultural Iowa
+        let landCover = 90;
+
+        // Factor 3: EPA constraint proximity (weight: 0.10)
+        let constraints = 100;
+        let nearestEPA = null;
+        if (epaData) {
+            for (const f of epaData.features) {
+                const c = f.geometry.coordinates;
+                const dist = haversine(lat, lng, c[1], c[0]);
+                if (dist < 0.5) { constraints = 0; nearestEPA = f.properties.name; break; }
+                if (dist < 2) { constraints = Math.min(constraints, 40); nearestEPA = f.properties.name; }
+            }
+        }
+
+        return { depthToBedrock, dtbZoneLabel, aquiferProd, wellCount,
+                 bestWellAquifer, landCover, landformName, regionalProd,
+                 constraints, nearestEPA };
+    }
+
+    function factorBar(name, value) {
+        const v = Math.round(value);
+        const color = scoreColor(v);
+        return `<div class="factor-row">
+            <span class="factor-name">${name}</span>
+            <div class="factor-bar-bg"><div class="factor-bar-fill" style="width:${v}%;background:${color}"></div></div>
+            <span class="factor-val" style="color:${color}">${v}</span>
+        </div>`;
+    }
+
+    function siteInquiry(lngLat) {
+        const f = estimateFactors(lngLat);
+
+        // Weighted sum matching the V2 GEE model exactly
+        const score = Math.round(
+            f.aquiferProd      * 0.650 +
+            f.depthToBedrock   * 0.150 +
+            f.landCover        * 0.100 +
+            f.constraints      * 0.100
+        );
+        const color = scoreColor(score);
+
+        // Context details from vector data
+        let contextHTML = '';
+        if (f.landformName) {
+            contextHTML += `<div style="padding:4px 16px;font-size:11px;color:var(--text-secondary)">Landform: <strong style="color:var(--text-primary)">${f.landformName}</strong></div>`;
+        }
+        if (f.dtbZoneLabel) {
+            contextHTML += `<div style="padding:4px 16px;font-size:11px;color:var(--text-secondary)">Depth to bedrock: <strong style="color:var(--text-primary)">${f.dtbZoneLabel}</strong></div>`;
+        }
+        if (f.regionalProd) {
+            contextHTML += `<div style="padding:4px 16px;font-size:11px;color:var(--text-secondary)">Regional productivity: <strong style="color:var(--text-primary)">${f.regionalProd}/100</strong></div>`;
+        }
+        if (f.wellCount > 0) {
+            let wellCtx = `${f.wellCount} DNR well${f.wellCount > 1 ? 's' : ''} within 15 km`;
+            if (f.bestWellAquifer) wellCtx += ` (best: ${f.bestWellAquifer})`;
+            contextHTML += `<div style="padding:4px 16px;font-size:11px;color:var(--text-secondary)">${wellCtx}</div>`;
+        }
+        if (f.nearestEPA) {
+            contextHTML += `<div style="padding:4px 16px;font-size:11px;color:var(--red)">Near EPA site: ${f.nearestEPA}</div>`;
+        }
+
+        new maplibregl.Popup({ maxWidth: '360px', offset: 15 })
+            .setLngLat(lngLat)
+            .setHTML(`
+                <div class="inquiry-header">
+                    <h3>Site Inquiry Report <span style="font-size:10px;color:var(--accent);font-weight:600">V2</span></h3>
+                    <div class="coords">${lngLat.lat.toFixed(4)}&deg;N, ${Math.abs(lngLat.lng).toFixed(4)}&deg;W</div>
+                </div>
+                <div class="score-hero">
+                    <div class="score-circle" style="background:${color}22;color:${color};border:2px solid ${color}">${score}</div>
+                    <div><div class="score-label">Darcy Suitability</div>
+                    <div class="score-desc" style="color:${color}">${scoreLabel(score)}</div></div>
+                </div>
+                ${contextHTML ? `<div style="padding:4px 0;border-bottom:1px solid var(--panel-border)">${contextHTML}</div>` : ''}
+                <div class="factor-grid">
+                    ${factorBar('Aquifer Prod. (65%)', f.aquiferProd)}
+                    ${factorBar('Depth to Bedrock', f.depthToBedrock)}
+                    ${factorBar('Land Cover', f.landCover)}
+                    ${factorBar('Env. Constraints', f.constraints)}
+                </div>
+                <div class="inquiry-footer">Weighted sum (4 factors, 65% aquifer) &middot; Darcy-aligned shallow screening</div>
+            `).addTo(map);
+    }
+
+    // ============================================================
+    // MAP LOAD
+    // ============================================================
+    map.on('load', async () => {
+        loading.style.display = 'block';
+
+        // Suitability overlay (V2)
+        try {
+            const boundsRes = await fetch('data/tiles_v2/bounds_v2.json');
+            const boundsData = await boundsRes.json();
+            if (!boundsData.placeholder) {
+                const b = boundsData.bounds;
+                map.addSource('suitability', {
+                    type: 'image', url: 'data/tiles_v2/suitability_overlay_v2.png?' + Date.now(),
+                    coordinates: [[b[0],b[3]], [b[2],b[3]], [b[2],b[1]], [b[0],b[1]]]
+                });
+                map.addLayer({ id: 'suitability-layer', type: 'raster', source: 'suitability',
+                    paint: { 'raster-opacity': 0.7, 'raster-fade-duration': 0 } });
+                initOverlayCanvas(boundsData);
+            }
+        } catch(e) { console.warn('V2 suitability overlay not loaded:', e); }
+
+        // NLCD Land Cover (MRLC WMS tiles)
+        try {
+            map.addSource('nlcd', {
+                type: 'raster',
+                tiles: ['https://www.mrlc.gov/geoserver/mrlc_display/NLCD_2021_Land_Cover_L48/wms?service=WMS&request=GetMap&layers=NLCD_2021_Land_Cover_L48&styles=&format=image/png&transparent=true&version=1.1.1&width=256&height=256&srs=EPSG:3857&bbox={bbox-epsg-3857}'],
+                tileSize: 256,
+            });
+            map.addLayer({ id: 'nlcd-layer', type: 'raster', source: 'nlcd',
+                layout: { visibility: 'none' },
+                paint: { 'raster-opacity': 0.6 }
+            }, 'suitability-layer');
+        } catch(e) { console.warn('NLCD layer not loaded:', e); }
+
+        // Iowa boundary
+        try {
+            const bd = await (await fetch('data/tiles_v2/iowa_boundary.geojson')).json();
+            map.addSource('iowa-boundary', { type: 'geojson', data: bd });
+            map.addLayer({ id: 'iowa-boundary-line', type: 'line', source: 'iowa-boundary',
+                paint: { 'line-color': '#94a3b8', 'line-width': 2, 'line-opacity': 0.5, 'line-dasharray': [4, 2] } });
+        } catch(e) {}
+
+        // Landform Regions — color-coded by landform_hydro_score
+        try {
+            landformData = await (await fetch('data/tiles_v2/iowa_landform_regions.geojson')).json();
+            map.addSource('landform', { type: 'geojson', data: landformData });
+
+            const lfFillColor = [
+                'interpolate', ['linear'], ['get', 'landform_hydro_score'],
+                0.25, '#b91c1c',  // Loess Hills
+                0.35, '#ef4444',  // Paleozoic Plateau
+                0.40, '#f97316',  // Drift Plains / NW Iowa
+                0.50, '#fbbf24',  // Iowan Surface
+                0.65, '#86efac',  // Des Moines Lobe
+                0.70, '#4ade80',  // Iowa-Cedar Lowland
+                0.80, '#22c55e',  // Alluvial Plains
+            ];
+
+            map.addLayer({ id: 'landform-fill', type: 'fill', source: 'landform',
+                layout: { visibility: 'none' },
+                paint: { 'fill-color': lfFillColor, 'fill-opacity': 0.4 }
+            });
+            map.addLayer({ id: 'landform-line', type: 'line', source: 'landform',
+                layout: { visibility: 'none' },
+                paint: { 'line-color': lfFillColor, 'line-width': 1.5, 'line-opacity': 0.7 }
+            });
+            map.addLayer({ id: 'landform-label', type: 'symbol', source: 'landform',
+                layout: {
+                    visibility: 'none',
+                    'text-field': ['get', 'LANDFORM_R'],
+                    'text-size': 11,
+                    'text-allow-overlap': false,
+                },
+                paint: {
+                    'text-color': '#e2e8f0',
+                    'text-halo-color': 'rgba(15,23,42,0.95)',
+                    'text-halo-width': 2,
+                }
+            });
+        } catch(e) { console.warn('Landform regions not loaded:', e); }
+
+        // Depth to Bedrock zones — color by dtb_score
+        try {
+            dtbData = await (await fetch('data/tiles_v2/iowa_dtb_scored_zones.geojson')).json();
+            map.addSource('dtb', { type: 'geojson', data: dtbData });
+
+            const dtbFillColor = [
+                'interpolate', ['linear'], ['get', 'dtb_score'],
+                0.2, '#ef4444',   // too shallow
+                0.3, '#f97316',   // deep
+                0.6, '#fbbf24',   // marginal
+                1.0, '#22c55e',   // ideal 50-150 ft
+            ];
+
+            map.addLayer({ id: 'dtb-fill', type: 'fill', source: 'dtb',
+                layout: { visibility: 'none' },
+                paint: { 'fill-color': dtbFillColor, 'fill-opacity': 0.35 }
+            });
+            map.addLayer({ id: 'dtb-line', type: 'line', source: 'dtb',
+                layout: { visibility: 'none' },
+                paint: { 'line-color': dtbFillColor, 'line-width': 1, 'line-opacity': 0.5 }
+            });
+        } catch(e) { console.warn('Depth-to-bedrock zones not loaded:', e); }
+
+        // Sourcewater Wells — color-coded by productivity_score
+        try {
+            wellsData = await (await fetch('data/tiles_v2/iowa_sourcewater_wells.geojson')).json();
+            map.addSource('wells', { type: 'geojson', data: wellsData });
+
+            const wellColor = [
+                'interpolate', ['linear'], ['get', 'productivity_score'],
+                0.0, '#ef4444',   // low productivity
+                0.4, '#f97316',
+                0.6, '#fbbf24',
+                0.8, '#4ade80',
+                1.0, '#22c55e',   // high productivity
+            ];
+
+            map.addLayer({ id: 'wells-layer', type: 'circle', source: 'wells',
+                paint: {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 1.5, 12, 5],
+                    'circle-color': wellColor, 'circle-stroke-color': '#1e293b',
+                    'circle-stroke-width': 0.5, 'circle-opacity': 0.7 } });
+
+            // Productivity heatmap (weighted by score)
+            map.addLayer({ id: 'well-density-layer', type: 'heatmap', source: 'wells',
+                layout: { visibility: 'none' },
+                paint: {
+                    'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 5, 20, 10, 40, 14, 60],
+                    'heatmap-weight': ['get', 'productivity_score'],
+                    'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 5, 0.5, 10, 1.5],
+                    'heatmap-color': [
+                        'interpolate', ['linear'], ['heatmap-density'],
+                        0, 'rgba(0,0,0,0)',
+                        0.1, 'rgba(59,130,246,0.3)',
+                        0.3, 'rgba(96,165,250,0.5)',
+                        0.5, 'rgba(251,191,36,0.6)',
+                        0.7, 'rgba(249,115,22,0.7)',
+                        1, 'rgba(239,68,68,0.8)',
+                    ],
+                    'heatmap-opacity': 0.7,
+                }
+            });
+        } catch(e) {}
+
+        // EPA constraints
+        try {
+            epaData = await (await fetch('data/tiles_v2/epa_constraints.geojson')).json();
+            map.addSource('epa', { type: 'geojson', data: epaData });
+            map.addLayer({ id: 'epa-layer', type: 'circle', source: 'epa',
+                layout: { visibility: 'none' },
+                paint: { 'circle-radius': 7, 'circle-color': '#ef4444',
+                    'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5, 'circle-opacity': 0.9 } });
+        } catch(e) {}
+
+        loading.style.display = 'none';
+
+        // Click handler
+        map.on('click', (e) => {
+            const hits = map.queryRenderedFeatures(e.point,
+                { layers: ['wells-layer','epa-layer'].filter(l => map.getLayer(l)) });
+
+            if (hits.length > 0) {
+                const f = hits[0], p = f.properties;
+                if (f.layer.id === 'wells-layer') {
+                    const ps = (p.productivity_score || 0);
+                    const psColor = ps >= 0.7 ? 'var(--green)' : ps >= 0.4 ? 'var(--yellow)' : 'var(--red)';
+                    new maplibregl.Popup({ offset: 10 }).setLngLat(e.lngLat).setHTML(`
+                        <div class="inquiry-header"><h3>Iowa DNR Sourcewater Well</h3><div class="coords">${p.PWSID||''}</div></div>
+                        <div style="padding:12px 16px;font-size:13px;color:var(--text-secondary)">
+                            <div>${p.NAME_OWNER||'Unnamed'}</div>
+                            ${p.WL_DPTH_FT?`<div style="margin-top:4px">Depth: <strong style="color:var(--text-primary)">${p.WL_DPTH_FT} ft</strong></div>`:''}
+                            ${p.AQUIFER?`<div style="margin-top:4px">Aquifer: ${p.AQUIFER}</div>`:''}
+                            ${p.PMPTST_GPM?`<div style="margin-top:4px">Pump test: <strong style="color:var(--text-primary)">${p.PMPTST_GPM} GPM</strong></div>`:''}
+                            ${p.SPC_GPM_FT?`<div style="margin-top:4px">Specific capacity: ${p.SPC_GPM_FT} GPM/ft</div>`:''}
+                            <div style="margin-top:6px">Productivity: <strong style="color:${psColor}">${(ps*100).toFixed(0)}/100</strong></div>
+                        </div>`).addTo(map);
+                } else if (f.layer.id === 'epa-layer') {
+                    new maplibregl.Popup({ offset: 10 }).setLngLat(e.lngLat).setHTML(`
+                        <div class="inquiry-header"><h3 style="color:var(--red)">EPA ${p.type==='superfund'?'Superfund':'Brownfield'} Site</h3></div>
+                        <div style="padding:12px 16px;font-size:13px;color:var(--text-secondary)">
+                            <div>${p.name||'Unnamed'}</div>
+                            <div style="margin-top:4px;color:var(--red)">&#9888; 500m exclusion buffer</div>
+                        </div>`).addTo(map);
+                }
+                return;
+            }
+
+            const { lng, lat } = e.lngLat;
+            if (lng > -96.7 && lng < -90.1 && lat > 40.3 && lat < 43.6) siteInquiry(e.lngLat);
+        });
+
+        map.on('mouseenter', 'wells-layer', () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', 'wells-layer', () => map.getCanvas().style.cursor = '');
+        map.on('mouseenter', 'epa-layer', () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', 'epa-layer', () => map.getCanvas().style.cursor = '');
+    });
+
+    // ============================================================
+    // LAYER TOGGLES
+    // ============================================================
+    function toggleLayer(id, layers) {
+        document.getElementById(id).addEventListener('change', e => {
+            const v = e.target.checked ? 'visible' : 'none';
+            layers.forEach(l => { if (map.getLayer(l)) map.setLayoutProperty(l, 'visibility', v); });
+        });
+    }
+
+    document.getElementById('toggle-suitability').addEventListener('change', e => {
+        if (map.getLayer('suitability-layer'))
+            map.setLayoutProperty('suitability-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+    });
+    document.getElementById('opacity-suitability').addEventListener('input', e => {
+        if (map.getLayer('suitability-layer'))
+            map.setPaintProperty('suitability-layer', 'raster-opacity', parseInt(e.target.value) / 100);
+    });
+    toggleLayer('toggle-wells', ['wells-layer']);
+    document.getElementById('toggle-landform').addEventListener('change', e => {
+        const v = e.target.checked ? 'visible' : 'none';
+        ['landform-fill', 'landform-line', 'landform-label'].forEach(l => {
+            if (map.getLayer(l)) map.setLayoutProperty(l, 'visibility', v);
+        });
+        document.getElementById('landform-legend').style.display = e.target.checked ? 'block' : 'none';
+    });
+    document.getElementById('toggle-dtb').addEventListener('change', e => {
+        const v = e.target.checked ? 'visible' : 'none';
+        ['dtb-fill', 'dtb-line'].forEach(l => {
+            if (map.getLayer(l)) map.setLayoutProperty(l, 'visibility', v);
+        });
+        document.getElementById('dtb-legend').style.display = e.target.checked ? 'block' : 'none';
+    });
+    toggleLayer('toggle-well-density', ['well-density-layer']);
+    toggleLayer('toggle-epa', ['epa-layer']);
+    toggleLayer('toggle-nlcd', ['nlcd-layer']);
+    toggleLayer('toggle-boundary', ['iowa-boundary-line']);
+    </script>
+</body>
+</html>

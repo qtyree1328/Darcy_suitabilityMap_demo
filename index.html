@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iowa Geothermal Suitability — Darcy Solutions</title>
+    <script src="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.css" rel="stylesheet" />
+    <style>
+        :root {
+            --panel-bg: rgba(15, 23, 42, 0.94);
+            --panel-border: rgba(255,255,255,0.08);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #3b82f6;
+            --green: #22c55e;
+            --yellow: #eab308;
+            --red: #ef4444;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+        #map { width: 100vw; height: 100vh; }
+
+        /* --- Control Panel --- */
+        .panel {
+            position: absolute;
+            top: 16px; left: 16px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--panel-border);
+            border-radius: 14px;
+            padding: 20px;
+            color: var(--text-primary);
+            width: 320px;
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+            z-index: 10;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        .panel h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+        .panel .subtitle { font-size: 12px; color: var(--text-secondary); margin-top: 2px; margin-bottom: 16px; }
+        .section-label {
+            font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+            color: var(--text-muted); margin: 14px 0 6px; font-weight: 600;
+        }
+        .layer-toggle {
+            display: flex; align-items: center; gap: 10px;
+            padding: 7px 0; cursor: pointer; font-size: 13px;
+            border-bottom: 1px solid var(--panel-border);
+            transition: color 0.15s;
+        }
+        .layer-toggle:hover { color: #fff; }
+        .layer-toggle input[type="checkbox"] {
+            accent-color: var(--accent); width: 15px; height: 15px;
+        }
+        .opacity-slider { width: 100%; margin: 4px 0 8px; accent-color: var(--accent); height: 4px; }
+        .legend-bar {
+            height: 10px; border-radius: 5px; margin: 6px 0 3px;
+            background: linear-gradient(to right, #7f1d1d, #dc2626, #f97316, #eab308, #a3e635, #16a34a, #166534);
+        }
+        .legend-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); }
+        .weight-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); padding: 2px 0; }
+        .weight-row span:last-child { font-weight: 600; color: var(--text-primary); }
+        .footer { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--panel-border);
+                   font-size: 10px; color: var(--text-muted); line-height: 1.5; }
+
+        .methods-btn {
+            display: inline-block; margin-top: 8px; padding: 5px 12px;
+            background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3);
+            border-radius: 6px; color: var(--accent); font-size: 11px; font-weight: 600;
+            cursor: pointer; transition: background 0.15s;
+        }
+        .methods-btn:hover { background: rgba(59,130,246,0.25); }
+
+        /* --- Methods Modal --- */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 100;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--panel-bg); border: 1px solid var(--panel-border);
+            border-radius: 16px; max-width: 640px; width: 90vw;
+            max-height: 85vh; overflow-y: auto; padding: 28px;
+            color: var(--text-primary); box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+        }
+        .modal h2 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+        .modal .modal-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 18px; }
+        .modal h3 { font-size: 13px; font-weight: 700; color: var(--accent); margin: 18px 0 8px;
+                     text-transform: uppercase; letter-spacing: 0.06em; }
+        .modal p, .modal li { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+        .modal ul { padding-left: 18px; margin: 6px 0; }
+        .modal li { margin-bottom: 4px; }
+        .modal .factor-table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; }
+        .modal .factor-table th { text-align: left; color: var(--text-muted); font-weight: 600;
+            padding: 6px 8px; border-bottom: 1px solid var(--panel-border); font-size: 10px;
+            text-transform: uppercase; letter-spacing: 0.06em; }
+        .modal .factor-table td { padding: 6px 8px; border-bottom: 1px solid var(--panel-border);
+            color: var(--text-secondary); }
+        .modal .factor-table td:first-child { color: var(--text-primary); font-weight: 500; }
+        .modal .close-modal {
+            position: sticky; top: 0; float: right; background: none; border: none;
+            color: var(--text-muted); font-size: 22px; cursor: pointer; padding: 0 4px;
+            line-height: 1;
+        }
+        .modal .close-modal:hover { color: var(--text-primary); }
+        .modal .data-note { font-size: 11px; color: var(--text-muted); margin-top: 14px;
+            padding-top: 12px; border-top: 1px solid var(--panel-border); line-height: 1.6; }
+
+        /* --- Site Inquiry Popup --- */
+        .maplibregl-popup { max-width: 360px !important; }
+        .maplibregl-popup-content {
+            background: var(--panel-bg); backdrop-filter: blur(16px);
+            border: 1px solid var(--panel-border); border-radius: 12px;
+            padding: 0; color: var(--text-primary); box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+            overflow: hidden;
+        }
+        .maplibregl-popup-close-button { color: var(--text-secondary); font-size: 18px; right: 8px; top: 6px; }
+        .maplibregl-popup-tip { border-top-color: var(--panel-bg); }
+
+        .inquiry-header {
+            padding: 16px 16px 12px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+        .inquiry-header h3 { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+        .inquiry-header .coords { font-size: 11px; color: var(--text-muted); font-family: monospace; }
+
+        .score-hero {
+            display: flex; align-items: center; gap: 14px;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+        .score-circle {
+            width: 56px; height: 56px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px; font-weight: 800; flex-shrink: 0;
+        }
+        .score-label { font-size: 12px; color: var(--text-secondary); }
+        .score-desc { font-size: 13px; margin-top: 2px; }
+
+        .factor-grid { padding: 12px 16px; }
+        .factor-row {
+            display: flex; align-items: center; gap: 8px;
+            padding: 5px 0; font-size: 12px;
+        }
+        .factor-bar-bg {
+            flex: 1; height: 6px; background: rgba(255,255,255,0.1);
+            border-radius: 3px; overflow: hidden;
+        }
+        .factor-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+        .factor-name { width: 110px; color: var(--text-secondary); flex-shrink: 0; }
+        .factor-val { width: 32px; text-align: right; font-weight: 600; flex-shrink: 0; }
+
+        .inquiry-footer {
+            padding: 10px 16px; font-size: 10px; color: var(--text-muted);
+            border-top: 1px solid var(--panel-border); text-align: center;
+        }
+
+        .loading-indicator {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: var(--panel-bg); backdrop-filter: blur(12px);
+            padding: 10px 20px; border-radius: 8px; color: var(--text-secondary);
+            font-size: 13px; display: none; z-index: 20;
+            border: 1px solid var(--panel-border);
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="panel">
+        <h1>Iowa Geothermal Suitability</h1>
+        <div class="subtitle">Darcy Solutions — Automated Site Intelligence</div>
+
+        <div class="section-label">Layers</div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-suitability" checked>
+            Suitability Score
+        </label>
+        <input type="range" class="opacity-slider" id="opacity-suitability" min="0" max="100" value="70">
+
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-wells" checked>
+            Groundwater Wells (USGS)
+        </label>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-aquifers">
+            Principal Aquifers
+        </label>
+        <div id="aquifer-legend" style="display:none; margin: 6px 0 4px 25px; font-size: 11px;">
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#f59e0b;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Cambrian-Ordovician</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#8b5cf6;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Silurian-Devonian</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#06b6d4;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Mississippian</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#10b981;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Upper Carbonate</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#f43f5e;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Lower Cretaceous</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#6b7280;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Other Rocks</span></div>
+        </div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-bedrock">
+            Bedrock Geology (Iowa DNR)
+        </label>
+        <div id="bedrock-legend" style="display:none; margin: 6px 0 4px 25px; font-size: 11px;">
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#22c55e;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Silurian (dolomite) 0.90</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#4ade80;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Devonian (limestone) 0.82</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#86efac;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Ordovician (mixed) 0.64</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#fbbf24;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Mississippian 0.71</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#fb923c;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Cambrian (sandstone) 0.76</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#f87171;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Pennsylvanian (shale) 0.37</span></div>
+            <div style="display:flex;align-items:center;gap:6px;padding:2px 0"><span style="width:12px;height:3px;background:#ef4444;border-radius:2px;display:inline-block"></span><span style="color:var(--text-secondary)">Cretaceous (clastic) 0.49</span></div>
+        </div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-well-density">
+            Well Density Heatmap
+        </label>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-epa">
+            EPA Constraints
+        </label>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-nlcd">
+            Land Cover (NLCD 2021)
+        </label>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-boundary" checked>
+            State Boundary
+        </label>
+
+        <div class="section-label">Suitability Scale</div>
+        <div class="legend-bar" style="background: linear-gradient(to right, #67000d, #cb181d, #fc9272, #fdae6b, #fee391, #d9f0a3, #78c679, #238443, #004529);"></div>
+        <div class="legend-labels"><span>Low (p2)</span><span>Median</span><span>High (p98)</span></div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Histogram-equalized for visual contrast</div>
+
+        <div class="section-label">Model Weights</div>
+        <div class="weight-row"><span>Aquifer Quality</span><span>35%</span></div>
+        <div class="weight-row"><span>Well Density</span><span>20%</span></div>
+        <div class="weight-row"><span>Bedrock Geology</span><span>12%</span></div>
+        <div class="weight-row"><span>Land Cover</span><span>12%</span></div>
+        <div class="weight-row"><span>Env. Constraints</span><span>10%</span></div>
+        <div class="weight-row"><span>Hydro. Proximity</span><span>11%</span></div>
+
+        <div class="footer">
+            <strong>Click anywhere in Iowa</strong> for an automated site inquiry report.<br><br>
+            <span class="methods-btn" onclick="document.getElementById('methods-modal').classList.add('active')">View Methodology</span><br><br>
+            Author: Quintin Tyree · Tyree Spatial<br>
+            Data: USGS, NOAA, EPA, FEMA, USFWS, Landsat 8/9, Sentinel-2<br>
+            All data freely accessible · $0 data cost · March 2026
+        </div>
+    </div>
+
+    <!-- Methods Modal -->
+    <div class="modal-overlay" id="methods-modal">
+        <div class="modal">
+            <button class="close-modal" onclick="document.getElementById('methods-modal').classList.remove('active')">&times;</button>
+            <h2>Methodology</h2>
+            <div class="modal-sub">Iowa Geothermal Suitability Assessment — Technical Methods</div>
+
+            <h3>Overview</h3>
+            <p>This map presents a multi-criteria geothermal suitability assessment for the state of Iowa, computed at 30-meter resolution using Google Earth Engine. The model evaluates six geospatial factors weighted by their relevance to ground-source heat pump (GSHP) and shallow geothermal system feasibility. The final score (0&ndash;100) is a weighted linear combination of normalized factor scores.</p>
+
+            <h3>Processing</h3>
+            <p>All raster analysis was performed in Google Earth Engine using the Python API. The suitability overlay was rendered as a color-mapped PNG at 2048px width and georeferenced to Iowa's bounding box. Histogram equalization (p2&ndash;p98) stretches the value range for visual contrast. Vector layers (wells, aquifers, EPA sites) are served as GeoJSON for client-side rendering.</p>
+
+            <h3>Suitability Factors</h3>
+            <table class="factor-table">
+                <thead>
+                    <tr><th>Factor</th><th>Weight</th><th>Source</th><th>Scoring</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Aquifer Quality</td><td>35%</td>
+                        <td>USGS Principal Aquifers</td>
+                        <td>Scored by aquifer type: Cambrian-Ordovician = 1.0, Silurian-Devonian = 0.9, Upper Carbonate = 0.8, Mississippian = 0.6, Lower Cretaceous = 0.5, Other Rocks = 0.1</td>
+                    </tr>
+                    <tr>
+                        <td>Well Density</td><td>20%</td>
+                        <td>USGS NWIS</td>
+                        <td>Kernel density (5 km radius), unitScale 0&ndash;1. Higher density = more productive aquifer zone.</td>
+                    </tr>
+                    <tr>
+                        <td>Bedrock Geology</td><td>12%</td>
+                        <td>Fallback: uniform 0.4</td>
+                        <td>Iowa is generally favorable for geothermal. With bedrock data: limestone/dolomite = 1.0, sandstone = 0.9, crystalline = 0.8, shale = 0.6.</td>
+                    </tr>
+                    <tr>
+                        <td>Land Cover</td><td>12%</td>
+                        <td>NLCD 2021 (GEE native)</td>
+                        <td>Grassland = 1.0, agriculture = 0.9, forest = 0.8, suburban = 0.5, urban = 0.3, water = 0.</td>
+                    </tr>
+                    <tr>
+                        <td>Environmental Constraints</td><td>10%</td>
+                        <td>NLCD wetlands + EPA NPL</td>
+                        <td>Wetland/water = 0; Superfund sites (500m buffer) = 0; elsewhere = 1.0.</td>
+                    </tr>
+                    <tr>
+                        <td>Hydrologic Proximity</td><td>11%</td>
+                        <td>NLCD water/wetland + GEE fastDistanceTransform</td>
+                        <td>0&ndash;250m = 1.0, 250&ndash;1000m = 0.8, 1000&ndash;2500m = 0.5, 2500&ndash;5000m = 0.2, &gt;5000m = 0. Proximity to water indicates shallow groundwater access.</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Suitability Equation</h3>
+            <p style="font-family: monospace; font-size: 12px; background: rgba(255,255,255,0.04); padding: 12px; border-radius: 8px; line-height: 1.8;">
+                Score = 0.35 &times; AquiferQuality<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; + 0.20 &times; WellDensity<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; + 0.12 &times; Geology<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; + 0.12 &times; LandCover<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; + 0.10 &times; Constraints<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; + 0.11 &times; HydroProximity<br>
+                <br>
+                Output: 0&ndash;100 (each factor normalized 0&ndash;1, then scaled)
+            </p>
+
+            <h3>Color Ramp</h3>
+            <p>The map overlay uses histogram equalization (p2&ndash;p98) to stretch the actual data distribution across the full color palette. This maximizes visual contrast without changing the underlying data.</p>
+
+            <h3>Site Inquiry (Click Report)</h3>
+            <p>Clicking any location in Iowa generates a site inquiry report. The overall score is a weighted sum of six factor scores computed client-side from loaded vector data (aquifer type, well proximity, EPA buffers) and geographic proxies for geology and land cover. These are approximate and intended for rapid screening, not engineering decisions.</p>
+
+            <h3>Limitations</h3>
+            <ul>
+                <li>Bedrock geology uses a uniform fallback (0.4) due to lack of a statewide geology raster.</li>
+                <li>Well density reflects USGS-monitored sites only, not all private wells.</li>
+                <li>Flood zone data (FEMA) and NWI wetlands are proxied by NLCD classes 90/95.</li>
+                <li>This is a screening tool. Site-specific geotechnical investigation is required before installation.</li>
+            </ul>
+
+            <div class="data-note">
+                <strong>Data sources:</strong> USGS NWIS, USGS Principal Aquifers, NLCD 2021, Landsat 8/9 Collection 2, Sentinel-2 SR Harmonized, EPA National Priorities List, Census TIGER/Line. All data freely accessible. $0 data cost.<br><br>
+                <strong>Resolution:</strong> 30m (NLCD native grid) &middot; <strong>CRS:</strong> EPSG:4326 (web display) &middot; <strong>Processing:</strong> Google Earth Engine REST API &middot; <strong>Date:</strong> March 2026
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-indicator" id="loading">Loading layers...</div>
+
+    <script>
+    // ============================================================
+    // MAP INITIALIZATION
+    // ============================================================
+    const map = new maplibregl.Map({
+        container: 'map',
+        style: {
+            version: 8,
+            sources: {
+                'carto-dark': {
+                    type: 'raster',
+                    tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
+                    tileSize: 256,
+                    attribution: '&copy; CARTO &copy; OpenStreetMap contributors'
+                }
+            },
+            layers: [{
+                id: 'carto-dark',
+                type: 'raster',
+                source: 'carto-dark'
+            }]
+        },
+        center: [-93.5, 42.0],
+        zoom: 7,
+        maxZoom: 15,
+        minZoom: 5
+    });
+
+    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), 'bottom-right');
+
+    const loading = document.getElementById('loading');
+
+    // Close modal on overlay click
+    document.getElementById('methods-modal').addEventListener('click', function(e) {
+        if (e.target === this) this.classList.remove('active');
+    });
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+    function scoreColor(score) {
+        if (score >= 70) return 'var(--green)';
+        if (score >= 40) return 'var(--yellow)';
+        return 'var(--red)';
+    }
+
+    function scoreLabel(score) {
+        if (score >= 80) return 'Excellent';
+        if (score >= 65) return 'Good';
+        if (score >= 50) return 'Moderate';
+        if (score >= 35) return 'Marginal';
+        return 'Low';
+    }
+
+    function haversine(lat1, lng1, lat2, lng2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function pointInPolygon(x, y, geometry) {
+        let coords;
+        if (geometry.type === 'Polygon') coords = [geometry.coordinates];
+        else if (geometry.type === 'MultiPolygon') coords = geometry.coordinates;
+        else return false;
+        for (const polygon of coords) {
+            const ring = polygon[0];
+            let inside = false;
+            for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                const xi = ring[i][0], yi = ring[i][1];
+                const xj = ring[j][0], yj = ring[j][1];
+                if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi))
+                    inside = !inside;
+            }
+            if (inside) return true;
+        }
+        return false;
+    }
+
+    // ============================================================
+    // SITE INQUIRY — sample actual raster overlay + vector context
+    // ============================================================
+    let wellsData = null, aquifersData = null, epaData = null, bedrockData = null;
+
+    // Hidden canvas to sample suitability overlay pixel colors
+    let overlayCanvas = null, overlayCtx = null, overlayBounds = null;
+
+    function initOverlayCanvas(boundsData) {
+        overlayBounds = boundsData.bounds; // [west, south, east, north]
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            overlayCanvas = document.createElement('canvas');
+            overlayCanvas.width = img.width;
+            overlayCanvas.height = img.height;
+            overlayCtx = overlayCanvas.getContext('2d');
+            overlayCtx.drawImage(img, 0, 0);
+            console.log(`Overlay canvas ready: ${img.width}x${img.height}`);
+        };
+        img.src = 'data/tiles/suitability_overlay.png';
+    }
+
+    // Sample the overlay PNG at a given lng/lat and return RGB
+    function sampleOverlay(lng, lat) {
+        if (!overlayCtx || !overlayBounds) return null;
+        const [west, south, east, north] = overlayBounds;
+        const px = ((lng - west) / (east - west)) * overlayCanvas.width;
+        const py = ((north - lat) / (north - south)) * overlayCanvas.height;
+        if (px < 0 || px >= overlayCanvas.width || py < 0 || py >= overlayCanvas.height) return null;
+        const pixel = overlayCtx.getImageData(Math.floor(px), Math.floor(py), 1, 1).data;
+        if (pixel[3] < 10) return null; // transparent = outside Iowa
+        return { r: pixel[0], g: pixel[1], b: pixel[2] };
+    }
+
+    // Convert sampled RGB to approximate 0-100 score using the palette
+    // The palette goes from deep red (low) through orange/yellow to deep green (high)
+    // We use a green-channel heuristic: more green = higher score
+    function rgbToScore(rgb) {
+        const { r, g, b } = rgb;
+        // Normalize: pure red (#67000d) = 0, pure green (#004529) = 100
+        // Use the ratio of green to (red+green) as a proxy
+        const total = r + g + 1; // avoid div by zero
+        const greenRatio = g / total;
+        // Map greenRatio (~0.05 for deep red to ~0.9 for deep green) to 0-100
+        const score = Math.round(((greenRatio - 0.05) / 0.85) * 100);
+        return Math.max(0, Math.min(100, score));
+    }
+
+    // AQ_CODE -> geothermal suitability score (matches GEE model)
+    const AQ_SCORES = {
+        'Cambrian-Ordovician aquifer system': 100,
+        'Silurian-Devonian aquifers': 90,
+        'Upper carbonate aquifer': 80,
+        'Mississippian aquifers': 60,
+        'Lower Cretaceous aquifers': 50,
+        'Other rocks': 10,
+    };
+
+    function estimateFactors(lngLat) {
+        const { lng, lat } = lngLat;
+
+        // Aquifer quality: score by aquifer type (not binary)
+        let aquifer = 10; // default: no named aquifer
+        let aquiferName = null;
+        if (aquifersData) {
+            for (const f of aquifersData.features) {
+                if (f.geometry && pointInPolygon(lng, lat, f.geometry)) {
+                    aquiferName = f.properties.AQ_NAME;
+                    aquifer = AQ_SCORES[aquiferName] || 10;
+                    break;
+                }
+            }
+        }
+
+        // Well density: count nearby wells within 5km
+        let wellCount = 0;
+        if (wellsData) {
+            for (const f of wellsData.features) {
+                const c = f.geometry.coordinates;
+                if (haversine(lat, lng, c[1], c[0]) < 5) wellCount++;
+            }
+        }
+        // Match GEE: unitScale(0, 50) then clamp 0-1
+        let wellDensity = Math.min(wellCount / 50, 1.0) * 100;
+
+        // Bedrock geology: look up from loaded Iowa DNR data
+        let geology = 40; // fallback
+        let geologyName = null;
+        if (bedrockData) {
+            for (const bf of bedrockData.features) {
+                if (bf.geometry && pointInPolygon(lng, lat, bf.geometry)) {
+                    geology = Math.round((bf.properties.geo_score || 0.4) * 100);
+                    geologyName = bf.properties.UNITNAME + ' (' + bf.properties.SYSTEM + ')';
+                    break;
+                }
+            }
+        }
+
+        // Land cover: Iowa is ~85% agriculture (NLCD 81/82 → 0.9)
+        // Urban areas near cities get lower scores
+        let landCover = 90; // default: agricultural (most of Iowa)
+
+        // EPA constraint proximity
+        let constraints = 100;
+        let nearestEPA = null;
+        if (epaData) {
+            for (const f of epaData.features) {
+                const c = f.geometry.coordinates;
+                const dist = haversine(lat, lng, c[1], c[0]);
+                if (dist < 0.5) { constraints = 0; nearestEPA = f.properties.name; break; }
+                if (dist < 2) { constraints = Math.min(constraints, 40); nearestEPA = f.properties.name; }
+            }
+        }
+
+        // Hydrologic proximity: estimate from distance to nearest water/wetland
+        // Use wells near rivers as a proxy; default moderate
+        let hydroProximity = 30; // default: >5km from water
+        if (wellsData) {
+            // wells tend to cluster near water; use well count as rough proxy
+            if (wellCount >= 10) hydroProximity = 80;
+            else if (wellCount >= 5) hydroProximity = 50;
+            else if (wellCount >= 1) hydroProximity = 30;
+        }
+
+        return { aquifer, aquiferName, wellDensity, wellCount, geology, geologyName,
+                 landCover, constraints, nearestEPA, hydroProximity };
+    }
+
+    function factorBar(name, value) {
+        const v = Math.round(value);
+        const color = scoreColor(v);
+        return `<div class="factor-row">
+            <span class="factor-name">${name}</span>
+            <div class="factor-bar-bg"><div class="factor-bar-fill" style="width:${v}%;background:${color}"></div></div>
+            <span class="factor-val" style="color:${color}">${v}</span>
+        </div>`;
+    }
+
+    function siteInquiry(lngLat) {
+        const f = estimateFactors(lngLat);
+
+        // Weighted sum matching the GEE model exactly
+        const score = Math.round(
+            f.aquifer      * 0.35 +
+            f.wellDensity  * 0.20 +
+            f.geology      * 0.12 +
+            f.landCover    * 0.12 +
+            f.constraints  * 0.10 +
+            f.hydroProximity * 0.11
+        );
+        const color = scoreColor(score);
+
+        // Context details from vector data
+        let contextHTML = '';
+        if (f.aquiferName && f.aquiferName !== 'Other rocks') {
+            contextHTML += `<div style="padding:4px 16px;font-size:11px;color:var(--text-secondary)">Aquifer: <strong style="color:var(--text-primary)">${f.aquiferName}</strong></div>`;
+        } else if (f.aquiferName === 'Other rocks') {
+            contextHTML += `<div style="padding:4px 16px;font-size:11px;color:var(--text-muted)">No principal aquifer system</div>`;
+        }
+        if (f.geologyName) {
+            contextHTML += `<div style="padding:4px 16px;font-size:11px;color:var(--text-secondary)">Bedrock: <strong style="color:var(--text-primary)">${f.geologyName}</strong></div>`;
+        }
+        if (f.wellCount > 0) {
+            contextHTML += `<div style="padding:4px 16px;font-size:11px;color:var(--text-secondary)">${f.wellCount} USGS well${f.wellCount > 1 ? 's' : ''} within 5 km</div>`;
+        }
+        if (f.nearestEPA) {
+            contextHTML += `<div style="padding:4px 16px;font-size:11px;color:var(--red)">Near EPA site: ${f.nearestEPA}</div>`;
+        }
+
+        new maplibregl.Popup({ maxWidth: '360px', offset: 15 })
+            .setLngLat(lngLat)
+            .setHTML(`
+                <div class="inquiry-header">
+                    <h3>Site Inquiry Report</h3>
+                    <div class="coords">${lngLat.lat.toFixed(4)}&deg;N, ${Math.abs(lngLat.lng).toFixed(4)}&deg;W</div>
+                </div>
+                <div class="score-hero">
+                    <div class="score-circle" style="background:${color}22;color:${color};border:2px solid ${color}">${score}</div>
+                    <div><div class="score-label">Geothermal Suitability</div>
+                    <div class="score-desc" style="color:${color}">${scoreLabel(score)}</div></div>
+                </div>
+                ${contextHTML ? `<div style="padding:4px 0;border-bottom:1px solid var(--panel-border)">${contextHTML}</div>` : ''}
+                <div class="factor-grid">
+                    ${factorBar('Aquifer Quality', f.aquifer)}
+                    ${factorBar('Well Density', f.wellDensity)}
+                    ${factorBar('Bedrock Geology', f.geology)}
+                    ${factorBar('Land Cover', f.landCover)}
+                    ${factorBar('Env. Constraints', f.constraints)}
+                    ${factorBar('Hydro. Proximity', f.hydroProximity)}
+                </div>
+                <div class="inquiry-footer">Weighted sum (6 factors) · Screening only</div>
+            `).addTo(map);
+    }
+
+    // ============================================================
+    // MAP LOAD
+    // ============================================================
+    map.on('load', async () => {
+        loading.style.display = 'block';
+
+        // Suitability overlay
+        try {
+            const boundsRes = await fetch('data/tiles/bounds.json');
+            const boundsData = await boundsRes.json();
+            if (!boundsData.placeholder) {
+                const b = boundsData.bounds;
+                map.addSource('suitability', {
+                    type: 'image', url: 'data/tiles/suitability_overlay.png?' + Date.now(),
+                    coordinates: [[b[0],b[3]], [b[2],b[3]], [b[2],b[1]], [b[0],b[1]]]
+                });
+                map.addLayer({ id: 'suitability-layer', type: 'raster', source: 'suitability',
+                    paint: { 'raster-opacity': 0.7, 'raster-fade-duration': 0 } });
+                // Init canvas for pixel sampling on click
+                initOverlayCanvas(boundsData);
+            }
+        } catch(e) { console.warn('Suitability overlay not loaded:', e); }
+
+        // NLCD Land Cover (MRLC WMS tiles)
+        try {
+            map.addSource('nlcd', {
+                type: 'raster',
+                tiles: ['https://www.mrlc.gov/geoserver/mrlc_display/NLCD_2021_Land_Cover_L48/wms?service=WMS&request=GetMap&layers=NLCD_2021_Land_Cover_L48&styles=&format=image/png&transparent=true&version=1.1.1&width=256&height=256&srs=EPSG:3857&bbox={bbox-epsg-3857}'],
+                tileSize: 256,
+            });
+            map.addLayer({ id: 'nlcd-layer', type: 'raster', source: 'nlcd',
+                layout: { visibility: 'none' },
+                paint: { 'raster-opacity': 0.6 }
+            }, 'suitability-layer'); // insert below suitability
+        } catch(e) { console.warn('NLCD layer not loaded:', e); }
+
+        // Iowa boundary
+        try {
+            const bd = await (await fetch('data/tiles/iowa_boundary.geojson')).json();
+            map.addSource('iowa-boundary', { type: 'geojson', data: bd });
+            map.addLayer({ id: 'iowa-boundary-line', type: 'line', source: 'iowa-boundary',
+                paint: { 'line-color': '#94a3b8', 'line-width': 2, 'line-opacity': 0.5, 'line-dasharray': [4, 2] } });
+        } catch(e) {}
+
+        // Aquifers — color-coded by type with dashed outlines
+        try {
+            aquifersData = await (await fetch('data/tiles/aquifers_iowa.geojson')).json();
+            map.addSource('aquifers', { type: 'geojson', data: aquifersData });
+
+            const aqColorMap = [
+                'Cambrian-Ordovician aquifer system', '#f59e0b',
+                'Silurian-Devonian aquifers', '#8b5cf6',
+                'Mississippian aquifers', '#06b6d4',
+                'Upper carbonate aquifer', '#10b981',
+                'Lower Cretaceous aquifers', '#f43f5e',
+                'Other rocks', '#6b7280',
+            ];
+            const aqFillColor = ['match', ['get', 'AQ_NAME'], ...aqColorMap, '#6b7280'];
+
+            map.addLayer({ id: 'aquifers-fill', type: 'fill', source: 'aquifers',
+                layout: { visibility: 'none' },
+                paint: { 'fill-color': aqFillColor, 'fill-opacity': 0.18 } });
+            map.addLayer({ id: 'aquifers-line', type: 'line', source: 'aquifers',
+                layout: { visibility: 'none' },
+                paint: {
+                    'line-color': aqFillColor,
+                    'line-width': 2.5,
+                    'line-opacity': 0.9,
+                    'line-dasharray': [4, 2],
+                } });
+            map.addLayer({ id: 'aquifers-label', type: 'symbol', source: 'aquifers',
+                layout: {
+                    visibility: 'none',
+                    'text-field': ['get', 'AQ_NAME'],
+                    'text-size': 11,
+                    'text-allow-overlap': false,
+                    'text-ignore-placement': false,
+                },
+                paint: {
+                    'text-color': '#e2e8f0',
+                    'text-halo-color': 'rgba(15,23,42,0.95)',
+                    'text-halo-width': 2,
+                }
+            });
+        } catch(e) {}
+
+        // Bedrock Geology — color-coded by geothermal score
+        try {
+            bedrockData = await (await fetch('data/tiles/iowa_bedrock.geojson')).json();
+            map.addSource('bedrock', { type: 'geojson', data: bedrockData });
+
+            // Color by geo_score: red (low/shale) -> yellow (mid) -> green (high/carbonate)
+            const brFillColor = [
+                'interpolate', ['linear'], ['get', 'geo_score'],
+                0.3, '#ef4444',   // shale/poor
+                0.5, '#f97316',   // clastic/mixed
+                0.65, '#fbbf24',  // moderate
+                0.8, '#4ade80',   // good carbonate
+                0.95, '#22c55e',  // excellent dolomite
+            ];
+
+            map.addLayer({ id: 'bedrock-fill', type: 'fill', source: 'bedrock',
+                layout: { visibility: 'none' },
+                paint: { 'fill-color': brFillColor, 'fill-opacity': 0.35 }
+            });
+            map.addLayer({ id: 'bedrock-line', type: 'line', source: 'bedrock',
+                layout: { visibility: 'none' },
+                paint: { 'line-color': brFillColor, 'line-width': 1.5, 'line-opacity': 0.7 }
+            });
+            map.addLayer({ id: 'bedrock-label', type: 'symbol', source: 'bedrock',
+                layout: {
+                    visibility: 'none',
+                    'text-field': ['concat', ['get', 'UNITNAME'], '\n', ['get', 'SYSTEM']],
+                    'text-size': 10,
+                    'text-allow-overlap': false,
+                },
+                paint: {
+                    'text-color': '#e2e8f0',
+                    'text-halo-color': 'rgba(15,23,42,0.95)',
+                    'text-halo-width': 2,
+                }
+            });
+        } catch(e) { console.warn('Bedrock geology not loaded:', e); }
+
+        // Wells
+        try {
+            wellsData = await (await fetch('data/tiles/iowa_wells.geojson')).json();
+            map.addSource('wells', { type: 'geojson', data: wellsData });
+            map.addLayer({ id: 'wells-layer', type: 'circle', source: 'wells',
+                paint: {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 1.5, 12, 5],
+                    'circle-color': '#60a5fa', 'circle-stroke-color': '#1e293b',
+                    'circle-stroke-width': 0.5, 'circle-opacity': 0.7 } });
+
+            // Well density heatmap layer (uses same source, different visualization)
+            map.addLayer({ id: 'well-density-layer', type: 'heatmap', source: 'wells',
+                layout: { visibility: 'none' },
+                paint: {
+                    'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 5, 20, 10, 40, 14, 60],
+                    'heatmap-weight': 1,
+                    'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 5, 0.5, 10, 1.5],
+                    'heatmap-color': [
+                        'interpolate', ['linear'], ['heatmap-density'],
+                        0, 'rgba(0,0,0,0)',
+                        0.1, 'rgba(59,130,246,0.3)',
+                        0.3, 'rgba(96,165,250,0.5)',
+                        0.5, 'rgba(251,191,36,0.6)',
+                        0.7, 'rgba(249,115,22,0.7)',
+                        1, 'rgba(239,68,68,0.8)',
+                    ],
+                    'heatmap-opacity': 0.7,
+                }
+            });
+        } catch(e) {}
+
+        // EPA constraints
+        try {
+            epaData = await (await fetch('data/tiles/epa_constraints.geojson')).json();
+            map.addSource('epa', { type: 'geojson', data: epaData });
+            map.addLayer({ id: 'epa-layer', type: 'circle', source: 'epa',
+                layout: { visibility: 'none' },
+                paint: { 'circle-radius': 7, 'circle-color': '#ef4444',
+                    'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5, 'circle-opacity': 0.9 } });
+        } catch(e) {}
+
+        loading.style.display = 'none';
+
+        // Click handler
+        map.on('click', (e) => {
+            const hits = map.queryRenderedFeatures(e.point,
+                { layers: ['wells-layer','epa-layer'].filter(l => map.getLayer(l)) });
+
+            if (hits.length > 0) {
+                const f = hits[0], p = f.properties;
+                if (f.layer.id === 'wells-layer') {
+                    new maplibregl.Popup({ offset: 10 }).setLngLat(e.lngLat).setHTML(`
+                        <div class="inquiry-header"><h3>USGS Well</h3><div class="coords">${p.site_id||''}</div></div>
+                        <div style="padding:12px 16px;font-size:13px;color:var(--text-secondary)">
+                            <div>${p.name||'Unnamed'}</div>
+                            ${p.well_depth_ft?`<div style="margin-top:4px">Depth: <strong style="color:var(--text-primary)">${p.well_depth_ft} ft</strong></div>`:''}
+                            ${p.aquifer?`<div style="margin-top:4px">Aquifer: ${p.aquifer}</div>`:''}
+                        </div>`).addTo(map);
+                } else if (f.layer.id === 'epa-layer') {
+                    new maplibregl.Popup({ offset: 10 }).setLngLat(e.lngLat).setHTML(`
+                        <div class="inquiry-header"><h3 style="color:var(--red)">EPA ${p.type==='superfund'?'Superfund':'Brownfield'} Site</h3></div>
+                        <div style="padding:12px 16px;font-size:13px;color:var(--text-secondary)">
+                            <div>${p.name||'Unnamed'}</div>
+                            <div style="margin-top:4px;color:var(--red)">&#9888; 500m exclusion buffer</div>
+                        </div>`).addTo(map);
+                }
+                return;
+            }
+
+            const { lng, lat } = e.lngLat;
+            if (lng > -96.7 && lng < -90.1 && lat > 40.3 && lat < 43.6) siteInquiry(e.lngLat);
+        });
+
+        map.on('mouseenter', 'wells-layer', () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', 'wells-layer', () => map.getCanvas().style.cursor = '');
+        map.on('mouseenter', 'epa-layer', () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', 'epa-layer', () => map.getCanvas().style.cursor = '');
+    });
+
+    // ============================================================
+    // LAYER TOGGLES
+    // ============================================================
+    function toggleLayer(id, layers) {
+        document.getElementById(id).addEventListener('change', e => {
+            const v = e.target.checked ? 'visible' : 'none';
+            layers.forEach(l => { if (map.getLayer(l)) map.setLayoutProperty(l, 'visibility', v); });
+        });
+    }
+
+    document.getElementById('toggle-suitability').addEventListener('change', e => {
+        if (map.getLayer('suitability-layer'))
+            map.setLayoutProperty('suitability-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+    });
+    document.getElementById('opacity-suitability').addEventListener('input', e => {
+        if (map.getLayer('suitability-layer'))
+            map.setPaintProperty('suitability-layer', 'raster-opacity', parseInt(e.target.value) / 100);
+    });
+    toggleLayer('toggle-wells', ['wells-layer']);
+    document.getElementById('toggle-aquifers').addEventListener('change', e => {
+        const v = e.target.checked ? 'visible' : 'none';
+        ['aquifers-fill', 'aquifers-line', 'aquifers-label'].forEach(l => {
+            if (map.getLayer(l)) map.setLayoutProperty(l, 'visibility', v);
+        });
+        document.getElementById('aquifer-legend').style.display = e.target.checked ? 'block' : 'none';
+    });
+    document.getElementById('toggle-bedrock').addEventListener('change', e => {
+        const v = e.target.checked ? 'visible' : 'none';
+        ['bedrock-fill', 'bedrock-line', 'bedrock-label'].forEach(l => {
+            if (map.getLayer(l)) map.setLayoutProperty(l, 'visibility', v);
+        });
+        document.getElementById('bedrock-legend').style.display = e.target.checked ? 'block' : 'none';
+    });
+    toggleLayer('toggle-well-density', ['well-density-layer']);
+    toggleLayer('toggle-epa', ['epa-layer']);
+    toggleLayer('toggle-nlcd', ['nlcd-layer']);
+    toggleLayer('toggle-boundary', ['iowa-boundary-line']);
+    </script>
+</body>
+</html>

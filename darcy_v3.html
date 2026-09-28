@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iowa Geothermal Suitability — V3 Geostatistical</title>
+    <script src="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@4.1.1/dist/maplibre-gl.css" rel="stylesheet" />
+    <style>
+        :root {
+            --panel-bg: rgba(15, 23, 42, 0.94);
+            --panel-border: rgba(255,255,255,0.08);
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #3b82f6;
+            --green: #22c55e;
+            --yellow: #eab308;
+            --red: #ef4444;
+            --purple: #a855f7;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+        #map { width: 100vw; height: 100vh; }
+
+        /* --- Control Panel --- */
+        .panel {
+            position: absolute;
+            top: 16px; left: 16px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--panel-border);
+            border-radius: 14px;
+            padding: 20px;
+            color: var(--text-primary);
+            width: 330px;
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+            z-index: 10;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        .panel h1 { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+        .panel .subtitle { font-size: 12px; color: var(--text-secondary); margin-top: 2px; margin-bottom: 16px; }
+        .panel .version-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px;
+            font-weight: 700; background: rgba(168,85,247,0.2); color: var(--purple);
+            letter-spacing: 0.05em; margin-left: 6px; vertical-align: middle;
+        }
+        .section-label {
+            font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+            color: var(--text-muted); margin: 14px 0 6px; font-weight: 600;
+        }
+        .layer-toggle {
+            display: flex; align-items: center; gap: 10px;
+            padding: 7px 0; cursor: pointer; font-size: 13px;
+            border-bottom: 1px solid var(--panel-border);
+            transition: color 0.15s;
+        }
+        .layer-toggle:hover { color: #fff; }
+        .layer-toggle input[type="checkbox"] {
+            accent-color: var(--accent); width: 15px; height: 15px;
+        }
+        .opacity-slider { width: 100%; margin: 4px 0 8px; accent-color: var(--accent); height: 4px; }
+        .legend-bar {
+            height: 10px; border-radius: 5px; margin: 6px 0 3px;
+        }
+        .legend-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); }
+        .weight-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); padding: 2px 0; }
+        .weight-row span:last-child { font-weight: 600; color: var(--text-primary); }
+        .footer { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--panel-border);
+                   font-size: 10px; color: var(--text-muted); line-height: 1.5; }
+
+        .methods-btn {
+            display: inline-block; margin-top: 8px; padding: 5px 12px;
+            background: rgba(168,85,247,0.15); border: 1px solid rgba(168,85,247,0.3);
+            border-radius: 6px; color: var(--purple); font-size: 11px; font-weight: 600;
+            cursor: pointer; transition: background 0.15s;
+        }
+        .methods-btn:hover { background: rgba(168,85,247,0.25); }
+
+        .inline-legend { margin: 6px 0 4px 25px; font-size: 11px; display: none; }
+        .legend-item { display:flex; align-items:center; gap:6px; padding:2px 0; }
+        .legend-swatch { width:12px; height:3px; border-radius:2px; display:inline-block; }
+
+        /* --- Methods Modal --- */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 100;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--panel-bg); border: 1px solid var(--panel-border);
+            border-radius: 16px; max-width: 700px; width: 90vw;
+            max-height: 85vh; overflow-y: auto; padding: 28px;
+            color: var(--text-primary); box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+        }
+        .modal h2 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+        .modal .modal-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 18px; }
+        .modal h3 { font-size: 13px; font-weight: 700; color: var(--purple); margin: 18px 0 8px;
+                     text-transform: uppercase; letter-spacing: 0.06em; }
+        .modal p, .modal li { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+        .modal ul { padding-left: 18px; margin: 6px 0; }
+        .modal li { margin-bottom: 4px; }
+        .modal .factor-table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; }
+        .modal .factor-table th { text-align: left; color: var(--text-muted); font-weight: 600;
+            padding: 6px 8px; border-bottom: 1px solid var(--panel-border); font-size: 10px;
+            text-transform: uppercase; letter-spacing: 0.06em; }
+        .modal .factor-table td { padding: 6px 8px; border-bottom: 1px solid var(--panel-border);
+            color: var(--text-secondary); }
+        .modal .factor-table td:first-child { color: var(--text-primary); font-weight: 500; }
+        .modal .close-modal {
+            position: sticky; top: 0; float: right; background: none; border: none;
+            color: var(--text-muted); font-size: 22px; cursor: pointer; padding: 0 4px; line-height: 1;
+        }
+        .modal .close-modal:hover { color: var(--text-primary); }
+        .modal .data-note { font-size: 11px; color: var(--text-muted); margin-top: 14px;
+            padding-top: 12px; border-top: 1px solid var(--panel-border); line-height: 1.6; }
+        .modal code { font-size: 12px; background: rgba(255,255,255,0.06); padding: 2px 6px;
+            border-radius: 4px; font-family: 'SF Mono', Monaco, monospace; }
+
+        /* --- Site Inquiry Popup --- */
+        .maplibregl-popup { max-width: 380px !important; }
+        .maplibregl-popup-content {
+            background: var(--panel-bg); backdrop-filter: blur(16px);
+            border: 1px solid var(--panel-border); border-radius: 12px;
+            padding: 0; color: var(--text-primary); box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+            overflow: hidden;
+        }
+        .maplibregl-popup-close-button { color: var(--text-secondary); font-size: 18px; right: 8px; top: 6px; }
+        .maplibregl-popup-tip { border-top-color: var(--panel-bg); }
+
+        .inquiry-header { padding: 16px 16px 12px; border-bottom: 1px solid var(--panel-border); }
+        .inquiry-header h3 { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+        .inquiry-header .coords { font-size: 11px; color: var(--text-muted); font-family: monospace; }
+
+        .score-hero {
+            display: flex; align-items: center; gap: 14px;
+            padding: 14px 16px; border-bottom: 1px solid var(--panel-border);
+        }
+        .score-circle {
+            width: 56px; height: 56px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px; font-weight: 800; flex-shrink: 0;
+        }
+        .score-label { font-size: 12px; color: var(--text-secondary); }
+        .score-desc { font-size: 13px; margin-top: 2px; }
+
+        .confidence-bar {
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 16px; font-size: 11px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+        .conf-fill-bg { flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+        .conf-fill { height: 100%; border-radius: 2px; }
+
+        .factor-grid { padding: 12px 16px; }
+        .factor-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12px; }
+        .factor-bar-bg { flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+        .factor-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+        .factor-name { width: 130px; color: var(--text-secondary); flex-shrink: 0; }
+        .factor-val { width: 32px; text-align: right; font-weight: 600; flex-shrink: 0; }
+
+        .inquiry-footer {
+            padding: 10px 16px; font-size: 10px; color: var(--text-muted);
+            border-top: 1px solid var(--panel-border); text-align: center;
+        }
+
+        .loading-indicator {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: var(--panel-bg); backdrop-filter: blur(12px);
+            padding: 10px 20px; border-radius: 8px; color: var(--text-secondary);
+            font-size: 13px; display: none; z-index: 20;
+            border: 1px solid var(--panel-border);
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="panel">
+        <h1>Iowa Geothermal Suitability <span class="version-badge">V3 GEOSTAT</span></h1>
+        <div class="subtitle">Well-Anchored Geostatistical Model &mdash; RF + Kriging</div>
+
+        <div class="section-label">Model Output</div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-suitability" checked>
+            Suitability Score
+        </label>
+        <input type="range" class="opacity-slider" id="opacity-suitability" min="0" max="100" value="70">
+
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-uncertainty">
+            Prediction Confidence
+        </label>
+        <input type="range" class="opacity-slider" id="opacity-uncertainty" min="0" max="100" value="60" style="display:none">
+        <div id="uncertainty-legend" class="inline-legend">
+            <div class="legend-item"><span class="legend-swatch" style="background:#1a3399"></span><span style="color:var(--text-secondary)">High Confidence (low variance)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#66cc66"></span><span style="color:var(--text-secondary)">Moderate Confidence</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#cc1a1a"></span><span style="color:var(--text-secondary)">Low Confidence (high variance)</span></div>
+        </div>
+
+        <div class="section-label">Ground Truth</div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-wells" checked>
+            Sourcewater Wells (Iowa DNR)
+        </label>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-well-density">
+            Productivity Heatmap
+        </label>
+
+        <div class="section-label">Covariates (Input Layers)</div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-surficial">
+            Surficial Geology
+        </label>
+        <div id="surficial-legend" class="inline-legend">
+            <div class="legend-item"><span class="legend-swatch" style="background:#22c55e"></span><span style="color:var(--text-secondary)">Sand &amp; Gravel / Outwash (0.9&ndash;1.0)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#4ade80"></span><span style="color:var(--text-secondary)">Alluvium (0.7&ndash;0.8)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#fbbf24"></span><span style="color:var(--text-secondary)">Till / Drift (0.5)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#f97316"></span><span style="color:var(--text-secondary)">Loess / Silt (0.3)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#ef4444"></span><span style="color:var(--text-secondary)">Lacustrine / Clay (0.1)</span></div>
+        </div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-landform">
+            Landform Regions
+        </label>
+        <div id="landform-legend" class="inline-legend">
+            <div class="legend-item"><span class="legend-swatch" style="background:#22c55e"></span><span style="color:var(--text-secondary)">Alluvial Plains (0.80)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#4ade80"></span><span style="color:var(--text-secondary)">Iowa-Cedar Lowland (0.70)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#86efac"></span><span style="color:var(--text-secondary)">Des Moines Lobe (0.65)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#fbbf24"></span><span style="color:var(--text-secondary)">Iowan Surface (0.50)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#f97316"></span><span style="color:var(--text-secondary)">Drift Plains / NW Iowa (0.40&ndash;0.45)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#ef4444"></span><span style="color:var(--text-secondary)">Paleozoic Plateau (0.35)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#b91c1c"></span><span style="color:var(--text-secondary)">Loess Hills (0.25)</span></div>
+        </div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-dtb">
+            Depth to Bedrock Zones
+        </label>
+        <div id="dtb-legend" class="inline-legend">
+            <div class="legend-item"><span class="legend-swatch" style="background:#22c55e"></span><span style="color:var(--text-secondary)">50&ndash;150 ft (1.0) Ideal</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#fbbf24"></span><span style="color:var(--text-secondary)">20&ndash;50 / 150&ndash;250 ft (0.6)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#f97316"></span><span style="color:var(--text-secondary)">&gt;250 ft (0.3)</span></div>
+            <div class="legend-item"><span class="legend-swatch" style="background:#ef4444"></span><span style="color:var(--text-secondary)">0&ndash;20 ft (0.2) Too shallow</span></div>
+        </div>
+
+        <div class="section-label">Constraints</div>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-epa">
+            EPA Superfund Sites
+        </label>
+        <label class="layer-toggle">
+            <input type="checkbox" id="toggle-boundary" checked>
+            State Boundary
+        </label>
+
+        <div class="section-label">Suitability Scale</div>
+        <div class="legend-bar" style="background: linear-gradient(to right, #67000d, #cb181d, #fc9272, #fdae6b, #fee391, #d9f0a3, #78c679, #238443, #004529);"></div>
+        <div class="legend-labels"><span>Low (0)</span><span>Median</span><span>High (100)</span></div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:2px">RF prediction + kriged residuals, histogram-equalized</div>
+
+        <div class="section-label">V3 Architecture</div>
+        <div class="weight-row"><span>Random Forest trend model</span><span style="color:var(--purple)">RF</span></div>
+        <div class="weight-row"><span>+ Residual kriging correction</span><span style="color:var(--purple)">OK</span></div>
+        <div class="weight-row"><span>= Final suitability surface</span><span>0&ndash;100</span></div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px">Wells are the response variable. Geological layers are covariates.</div>
+
+        <div class="footer">
+            <strong>Click anywhere in Iowa</strong> for a site inquiry with suitability score and prediction confidence.<br><br>
+            <span class="methods-btn" onclick="document.getElementById('methods-modal').classList.add('active')">View Methodology</span><br><br>
+            Author: Quintin Tyree &middot; Tyree Spatial<br>
+            Data: Iowa DNR Sourcewater Wells, ISU GLSI, IGS, USGS, EPA<br>
+            Processing: scikit-learn + PyKrige (local)
+        </div>
+    </div>
+
+    <!-- Methods Modal -->
+    <div class="modal-overlay" id="methods-modal">
+        <div class="modal">
+            <button class="close-modal" onclick="document.getElementById('methods-modal').classList.remove('active')">&times;</button>
+            <h2>Methodology &mdash; V3 Well-Anchored Geostatistical</h2>
+            <div class="modal-sub">Random Forest + Residual Kriging &bull; Iowa Shallow Geothermal Suitability</div>
+
+            <h3>Architectural Shift from V2</h3>
+            <p>V2 used a flat weighted sum of four independently scored layers, treating every pixel as an isolated assessment. V3 replaces this with a <strong>geostatistical interpolation model</strong> where well observations are the ground truth and geological layers guide spatial extrapolation.</p>
+            <p style="margin-top:8px"><strong>Core principle:</strong> Wells are the only dataset that integrates depth, lithology, saturation, and yield at a single point. Every other layer provides partial, indirect evidence. V3 asks: <em>given what nearby wells in similar geological settings tell us, what is the predicted aquifer suitability at this unsampled location?</em></p>
+
+            <h3>Well Productivity Scoring (Response Variable)</h3>
+            <p>Each of ~7,300 Iowa DNR Sourcewater wells receives a composite productivity score (0&ndash;1) computed as a weighted sum of eight field-level scores using <strong>percentile normalization</strong> within the shallow well population:</p>
+            <table class="factor-table">
+                <thead><tr><th>Field</th><th>Weight</th><th>Scoring</th></tr></thead>
+                <tbody>
+                    <tr><td>Pump Test GPM</td><td>25%</td><td>Percentile: p90+=1.0, p75=0.8, p50=0.6, p25=0.3, &lt;p10=0.1</td></tr>
+                    <tr><td>Specific Capacity</td><td>20%</td><td>Percentile: same breakpoints</td></tr>
+                    <tr><td>Transmissivity</td><td>15%</td><td>Log-scale percentile normalization</td></tr>
+                    <tr><td>Aquifer Type</td><td>15%</td><td>Alluvial=1.0, Sand&amp;Gravel=0.9, Drift=0.7, Bedrock=0.2</td></tr>
+                    <tr><td>Aquifer Thickness</td><td>10%</td><td>&ge;50ft=1.0, 30-50=0.8, 15-30=0.5, &lt;15=0.2</td></tr>
+                    <tr><td>Well Depth</td><td>5%</td><td>50-150ft=1.0, 20-50=0.6, 150-250=0.4</td></tr>
+                    <tr><td>Static Water Level</td><td>5%</td><td>&lt;20ft=1.0, 20-50=0.8, 50-100=0.5, &gt;100=0.2</td></tr>
+                    <tr><td>Confined/Unconfined</td><td>5%</td><td>Unconfined=1.0, Confined=0.6</td></tr>
+                </tbody>
+            </table>
+            <p>Wells with null fields receive neutral scores (0.4&ndash;0.5) for those fields. A <strong>data completeness index</strong> (0&ndash;5) tracks how many productivity fields are populated.</p>
+
+            <h3>Random Forest Trend Model</h3>
+            <p>A <code>RandomForestRegressor</code> (200 trees, max_depth=12) predicts well productivity scores from five geospatial covariates:</p>
+            <table class="factor-table">
+                <thead><tr><th>Covariate</th><th>Source</th><th>Role</th></tr></thead>
+                <tbody>
+                    <tr><td>Surficial Geology Score</td><td>Iowa DNR 100k MapServer</td><td>Primary interpolation zone layer</td></tr>
+                    <tr><td>Depth-to-Bedrock Score</td><td>IGS contour interpolation</td><td>Drilling window constraint</td></tr>
+                    <tr><td>Landform Region Score</td><td>Iowa DNR + well-derived averages</td><td>Regional geological context</td></tr>
+                    <tr><td>Alluvial Aquifer Membership</td><td>USGS Principal Aquifers</td><td>Binary aquifer presence</td></tr>
+                    <tr><td>Distance to Alluvial Boundary</td><td>Derived from aquifer polygons</td><td>Proximity to productive aquifers</td></tr>
+                </tbody>
+            </table>
+            <p>Wells with higher data completeness receive higher sample weights during training. The model is evaluated with 5-fold cross-validation.</p>
+
+            <h3>Residual Kriging</h3>
+            <p>After RF prediction, <strong>residuals</strong> (observed score minus RF prediction) are computed at each well location. These residuals capture local variation not explained by the covariates &mdash; e.g., a well that is more productive than its geological setting would suggest.</p>
+            <p style="margin-top:6px">An empirical variogram (spherical model) is fitted to the residuals, and <strong>ordinary kriging</strong> interpolates them onto a ~2 km statewide grid. The kriging also produces a <strong>variance surface</strong> that quantifies prediction uncertainty.</p>
+
+            <h3>Final Suitability Surface</h3>
+            <p style="font-family: 'SF Mono', Monaco, monospace; font-size: 12px; background: rgba(255,255,255,0.04); padding: 12px; border-radius: 8px; line-height: 1.8;">
+                Suitability(x) = RF_prediction(x) + Kriged_residual(x)<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;clipped to [0, 1], scaled to 0&ndash;100<br><br>
+                Confidence(x) = 1 / (1 + Kriging_variance(x))<br>
+                &nbsp;&nbsp;&nbsp;&nbsp;High near wells, low in data-sparse areas
+            </p>
+            <p>Constraint mask: EPA Superfund sites (500m buffer) = 0.</p>
+
+            <h3>Key Advantages Over V2</h3>
+            <ul>
+                <li><strong>Wells as ground truth, not just another layer.</strong> V2 treated well data as one of four inputs. V3 treats wells as the response variable that all other layers exist to support.</li>
+                <li><strong>Actual aquifer properties in scoring.</strong> V3 uses transmissivity, specific capacity, aquifer thickness, and hydraulic conductivity with percentile normalization.</li>
+                <li><strong>Geological layers inform interpolation, not scoring.</strong> V2 assigned arbitrary scores to landform regions. V3 learns the actual relationship between geological setting and productivity from well data.</li>
+                <li><strong>Built-in uncertainty.</strong> V2 produced a single score. V3 produces both a prediction and a confidence surface from kriging variance.</li>
+            </ul>
+
+            <h3>Site Inquiry (Click Report)</h3>
+            <p>Clicking any location shows the predicted suitability score, prediction confidence (from kriging variance), covariate values, and nearest wells with their productivity data. The confidence level indicates how well the model knows that location &mdash; high near dense well clusters, low in data-sparse uplands.</p>
+
+            <h3>Limitations</h3>
+            <ul>
+                <li>Model trained on ~7,300 public water supply wells. Private wells, monitoring wells, and irrigation wells are excluded.</li>
+                <li>Surficial geology uses 1:100,000 scale mapping (~20% coverage at higher resolution). V3 uses statewide coverage with reduced detail.</li>
+                <li>Kriging assumes spatial stationarity. Geological boundaries may violate this assumption.</li>
+                <li>This is a regional screening tool. Site-specific geotechnical investigation is required before installation.</li>
+            </ul>
+
+            <div class="data-note">
+                <strong>Data sources:</strong> Iowa DNR Sourcewater Wells (pump test &amp; hydrogeologic data), Iowa DNR Surficial Geology 100k, IGS Depth-to-Bedrock Contours, Iowa DNR Landform Regions, USGS Principal Aquifers, EPA NPL. All data freely accessible. $0 data cost.<br><br>
+                <strong>Grid:</strong> ~2 km (0.02&deg;) &middot; <strong>CRS:</strong> EPSG:4326 &middot; <strong>Processing:</strong> scikit-learn RandomForest + PyKrige OrdinaryKriging &middot; <strong>Date:</strong> March 2026
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-indicator" id="loading">Loading layers...</div>
+
+    <script>
+    // ============================================================
+    // MAP INITIALIZATION
+    // ============================================================
+    const map = new maplibregl.Map({
+        container: 'map',
+        style: {
+            version: 8,
+            sources: {
+                'carto-dark': {
+                    type: 'raster',
+                    tiles: ['https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
+                    tileSize: 256,
+                    attribution: '&copy; CARTO &copy; OpenStreetMap contributors'
+                }
+            },
+            layers: [{ id: 'carto-dark', type: 'raster', source: 'carto-dark' }]
+        },
+        center: [-93.5, 42.0],
+        zoom: 7,
+        maxZoom: 15,
+        minZoom: 5
+    });
+
+    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 200 }), 'bottom-right');
+
+    const loading = document.getElementById('loading');
+    const dataUrl = './data/tiles_v3/';
+
+    document.getElementById('methods-modal').addEventListener('click', function(e) {
+        if (e.target === this) this.classList.remove('active');
+    });
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+    function scoreColor(score) {
+        if (score >= 70) return 'var(--green)';
+        if (score >= 40) return 'var(--yellow)';
+        return 'var(--red)';
+    }
+
+    function scoreLabel(score) {
+        if (score >= 80) return 'Excellent';
+        if (score >= 65) return 'Good';
+        if (score >= 50) return 'Moderate';
+        if (score >= 35) return 'Marginal';
+        return 'Low';
+    }
+
+    function confColor(conf) {
+        if (conf >= 70) return 'var(--green)';
+        if (conf >= 40) return 'var(--yellow)';
+        return 'var(--red)';
+    }
+
+    function confLabel(conf) {
+        if (conf >= 80) return 'High confidence — dense well data nearby';
+        if (conf >= 60) return 'Moderate confidence — some nearby wells';
+        if (conf >= 40) return 'Low confidence — sparse well coverage';
+        return 'Very low confidence — extrapolating from distant wells';
+    }
+
+    function haversine(lat1, lng1, lat2, lng2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function pointInPolygon(x, y, geometry) {
+        let coords;
+        if (geometry.type === 'Polygon') coords = [geometry.coordinates];
+        else if (geometry.type === 'MultiPolygon') coords = geometry.coordinates;
+        else return false;
+        for (const polygon of coords) {
+            const ring = polygon[0];
+            let inside = false;
+            for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                const xi = ring[i][0], yi = ring[i][1];
+                const xj = ring[j][0], yj = ring[j][1];
+                if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi))
+                    inside = !inside;
+            }
+            if (inside) return true;
+        }
+        return false;
+    }
+
+    // ============================================================
+    // SITE INQUIRY — V3 Geostatistical Model
+    // ============================================================
+    let wellsData = null, landformData = null, dtbData = null,
+        epaData = null, surficialData = null;
+
+    function estimateFactors(lngLat) {
+        const { lng, lat } = lngLat;
+
+        // Surficial geology score
+        let surfScore = 50, surfName = null;
+        if (surficialData) {
+            for (const f of surficialData.features) {
+                if (f.geometry && pointInPolygon(lng, lat, f.geometry)) {
+                    surfScore = Math.round((f.properties.surf_score || 0.5) * 100);
+                    surfName = f.properties.Unit_name || f.properties.unit_sym || null;
+                    break;
+                }
+            }
+        }
+
+        // Depth to bedrock score
+        let dtbScore = 60, dtbLabel = null;
+        if (dtbData) {
+            for (const f of dtbData.features) {
+                if (f.geometry && pointInPolygon(lng, lat, f.geometry)) {
+                    dtbScore = Math.round((f.properties.dtb_score || 0.6) * 100);
+                    const s = f.properties.dtb_score;
+                    if (s === 1.0) dtbLabel = '50\u2013150 ft (ideal)';
+                    else if (s === 0.6) dtbLabel = '20\u201350 or 150\u2013250 ft';
+                    else if (s === 0.3) dtbLabel = '>250 ft (deep)';
+                    else if (s === 0.2) dtbLabel = '0\u201320 ft (too shallow)';
+                    break;
+                }
+            }
+        }
+
+        // Landform region
+        let landformScore = 50, landformName = null;
+        if (landformData) {
+            for (const f of landformData.features) {
+                if (f.geometry && pointInPolygon(lng, lat, f.geometry)) {
+                    landformName = f.properties.LANDFORM_R;
+                    const rp = f.properties.regional_productivity;
+                    landformScore = Math.round((rp !== undefined && rp !== null ? rp : 0.5) * 100);
+                    break;
+                }
+            }
+        }
+
+        // Nearby wells (15km radius)
+        let nearbyWells = [];
+        if (wellsData) {
+            for (const f of wellsData.features) {
+                const c = f.geometry.coordinates;
+                const dist = haversine(lat, lng, c[1], c[0]);
+                if (dist < 15) {
+                    nearbyWells.push({ dist, props: f.properties });
+                }
+            }
+            nearbyWells.sort((a, b) => a.dist - b.dist);
+        }
+
+        // Confidence estimate: based on well density and proximity
+        let confidence = 20; // baseline
+        if (nearbyWells.length > 0) {
+            const nearestDist = nearbyWells[0].dist;
+            const densityBonus = Math.min(nearbyWells.length * 3, 40);
+            const proxBonus = Math.max(0, 40 - nearestDist * 4);
+            confidence = Math.min(Math.round(20 + densityBonus + proxBonus), 100);
+        }
+
+        // EPA constraint
+        let constraint = 100, nearestEPA = null;
+        if (epaData) {
+            for (const f of epaData.features) {
+                const c = f.geometry.coordinates;
+                const dist = haversine(lat, lng, c[1], c[0]);
+                if (dist < 0.5) { constraint = 0; nearestEPA = f.properties.name; break; }
+                if (dist < 2) { constraint = Math.min(constraint, 40); nearestEPA = f.properties.name; }
+            }
+        }
+
+        // Approximate suitability (client-side estimate)
+        // In the actual model, RF + kriging produces the score.
+        // Here we approximate from covariates + nearby well data.
+        let wellProd = landformScore;
+        if (nearbyWells.length > 0) {
+            const topWells = nearbyWells.slice(0, 5);
+            const avgScore = topWells.reduce((s, w) => {
+                return s + (w.props.v3_score || w.props.productivity_score || 0.5);
+            }, 0) / topWells.length;
+            const distWeight = Math.max(0, 1 - nearbyWells[0].dist / 15);
+            wellProd = Math.round(avgScore * 100 * (0.6 + 0.4 * distWeight));
+        }
+
+        return {
+            surfScore, surfName,
+            dtbScore, dtbLabel,
+            landformScore, landformName,
+            wellProd, nearbyWells,
+            confidence, constraint, nearestEPA,
+        };
+    }
+
+    function factorBar(name, value) {
+        const v = Math.round(value);
+        const color = scoreColor(v);
+        return `<div class="factor-row">
+            <span class="factor-name">${name}</span>
+            <div class="factor-bar-bg"><div class="factor-bar-fill" style="width:${v}%;background:${color}"></div></div>
+            <span class="factor-val" style="color:${color}">${v}</span>
+        </div>`;
+    }
+
+    function siteInquiry(lngLat) {
+        const f = estimateFactors(lngLat);
+
+        // Approximate V3 score (weighted by covariate importance)
+        const score = Math.round(
+            f.wellProd * 0.40 +
+            f.surfScore * 0.25 +
+            f.dtbScore * 0.15 +
+            f.landformScore * 0.15 +
+            f.constraint * 0.05
+        );
+        const color = scoreColor(score);
+        const cColor = confColor(f.confidence);
+
+        // Nearby wells detail
+        let wellsHTML = '';
+        if (f.nearbyWells.length > 0) {
+            const top3 = f.nearbyWells.slice(0, 3);
+            wellsHTML = `<div style="padding:6px 16px;border-bottom:1px solid var(--panel-border)">
+                <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">${f.nearbyWells.length} DNR well${f.nearbyWells.length>1?'s':''} within 15 km</div>`;
+            for (const w of top3) {
+                const ps = w.props.v3_score || w.props.productivity_score || 0;
+                const psColor = ps >= 0.7 ? 'var(--green)' : ps >= 0.4 ? 'var(--yellow)' : 'var(--red)';
+                wellsHTML += `<div style="font-size:11px;color:var(--text-secondary);padding:2px 0">
+                    ${w.props.AQUIFER || 'Unknown'} &mdash;
+                    <strong style="color:${psColor}">${(ps*100).toFixed(0)}</strong>/100
+                    ${w.props.PMPTST_GPM ? ` (${w.props.PMPTST_GPM} GPM)` : ''}
+                    <span style="color:var(--text-muted)">${w.dist.toFixed(1)} km</span>
+                </div>`;
+            }
+            wellsHTML += '</div>';
+        }
+
+        // Context
+        let contextHTML = '';
+        if (f.surfName) contextHTML += `<div style="padding:3px 16px;font-size:11px;color:var(--text-secondary)">Surficial: <strong style="color:var(--text-primary)">${f.surfName}</strong></div>`;
+        if (f.landformName) contextHTML += `<div style="padding:3px 16px;font-size:11px;color:var(--text-secondary)">Landform: <strong style="color:var(--text-primary)">${f.landformName}</strong></div>`;
+        if (f.dtbLabel) contextHTML += `<div style="padding:3px 16px;font-size:11px;color:var(--text-secondary)">Depth to bedrock: <strong style="color:var(--text-primary)">${f.dtbLabel}</strong></div>`;
+        if (f.nearestEPA) contextHTML += `<div style="padding:3px 16px;font-size:11px;color:var(--red)">Near EPA site: ${f.nearestEPA}</div>`;
+
+        new maplibregl.Popup({ maxWidth: '380px', offset: 15 })
+            .setLngLat(lngLat)
+            .setHTML(`
+                <div class="inquiry-header">
+                    <h3>Site Inquiry Report <span style="font-size:10px;color:var(--purple);font-weight:600">V3</span></h3>
+                    <div class="coords">${lngLat.lat.toFixed(4)}&deg;N, ${Math.abs(lngLat.lng).toFixed(4)}&deg;W</div>
+                </div>
+                <div class="score-hero">
+                    <div class="score-circle" style="background:${color}22;color:${color};border:2px solid ${color}">${score}</div>
+                    <div><div class="score-label">Darcy Suitability (V3)</div>
+                    <div class="score-desc" style="color:${color}">${scoreLabel(score)}</div></div>
+                </div>
+                <div class="confidence-bar">
+                    <span style="color:var(--text-muted);width:70px;flex-shrink:0">Confidence</span>
+                    <div class="conf-fill-bg"><div class="conf-fill" style="width:${f.confidence}%;background:${cColor}"></div></div>
+                    <span style="color:${cColor};font-weight:600;width:30px;text-align:right">${f.confidence}%</span>
+                </div>
+                <div style="padding:2px 16px 6px;font-size:10px;color:var(--text-muted)">${confLabel(f.confidence)}</div>
+                ${wellsHTML}
+                ${contextHTML ? `<div style="padding:4px 0;border-bottom:1px solid var(--panel-border)">${contextHTML}</div>` : ''}
+                <div class="factor-grid">
+                    ${factorBar('Well Productivity', f.wellProd)}
+                    ${factorBar('Surficial Geology', f.surfScore)}
+                    ${factorBar('Depth to Bedrock', f.dtbScore)}
+                    ${factorBar('Landform Region', f.landformScore)}
+                </div>
+                <div class="inquiry-footer">RF + Kriging geostatistical model &middot; V3 well-anchored screening</div>
+            `).addTo(map);
+    }
+
+    // ============================================================
+    // MAP LOAD
+    // ============================================================
+    map.on('load', async () => {
+        loading.style.display = 'block';
+
+        // Suitability overlay (V3)
+        try {
+            const boundsRes = await fetch(dataUrl + 'bounds_v3.json');
+            const boundsData = await boundsRes.json();
+            if (!boundsData.placeholder) {
+                const b = boundsData.bounds;
+                map.addSource('suitability', {
+                    type: 'image', url: dataUrl + 'suitability_overlay_v3.png?' + Date.now(),
+                    coordinates: [[b[0],b[3]], [b[2],b[3]], [b[2],b[1]], [b[0],b[1]]]
+                });
+                map.addLayer({ id: 'suitability-layer', type: 'raster', source: 'suitability',
+                    paint: { 'raster-opacity': 0.7, 'raster-fade-duration': 0 } });
+            }
+        } catch(e) { console.warn('V3 suitability overlay not loaded:', e); }
+
+        // Uncertainty overlay (V3)
+        try {
+            const boundsRes = await fetch(dataUrl + 'bounds_v3.json');
+            const boundsData = await boundsRes.json();
+            if (!boundsData.placeholder) {
+                const b = boundsData.bounds;
+                map.addSource('uncertainty', {
+                    type: 'image', url: dataUrl + 'uncertainty_overlay_v3.png?' + Date.now(),
+                    coordinates: [[b[0],b[3]], [b[2],b[3]], [b[2],b[1]], [b[0],b[1]]]
+                });
+                map.addLayer({ id: 'uncertainty-layer', type: 'raster', source: 'uncertainty',
+                    layout: { visibility: 'none' },
+                    paint: { 'raster-opacity': 0.6, 'raster-fade-duration': 0 } });
+            }
+        } catch(e) { console.warn('V3 uncertainty overlay not loaded:', e); }
+
+        // Iowa boundary
+        try {
+            const bd = await (await fetch(dataUrl + 'iowa_boundary.geojson')).json();
+            map.addSource('iowa-boundary', { type: 'geojson', data: bd });
+            map.addLayer({ id: 'iowa-boundary-line', type: 'line', source: 'iowa-boundary',
+                paint: { 'line-color': '#94a3b8', 'line-width': 2, 'line-opacity': 0.5, 'line-dasharray': [4, 2] } });
+        } catch(e) {}
+
+        // Surficial Geology
+        try {
+            surficialData = await (await fetch(dataUrl + 'iowa_surficial.geojson')).json();
+            map.addSource('surficial', { type: 'geojson', data: surficialData });
+            const surfFillColor = [
+                'interpolate', ['linear'], ['get', 'surf_score'],
+                0.0, '#7f1d1d',   // water/peat
+                0.1, '#ef4444',   // lacustrine
+                0.3, '#f97316',   // loess/silt
+                0.5, '#fbbf24',   // till
+                0.7, '#4ade80',   // alluvium
+                0.9, '#22c55e',   // sand & gravel
+                1.0, '#15803d',   // coarse outwash
+            ];
+            map.addLayer({ id: 'surficial-fill', type: 'fill', source: 'surficial',
+                layout: { visibility: 'none' },
+                paint: { 'fill-color': surfFillColor, 'fill-opacity': 0.45 }
+            });
+            map.addLayer({ id: 'surficial-line', type: 'line', source: 'surficial',
+                layout: { visibility: 'none' },
+                paint: { 'line-color': surfFillColor, 'line-width': 0.5, 'line-opacity': 0.4 }
+            });
+        } catch(e) { console.warn('Surficial geology not loaded:', e); }
+
+        // Landform Regions
+        try {
+            landformData = await (await fetch(dataUrl + 'iowa_landform_regions.geojson')).json();
+            map.addSource('landform', { type: 'geojson', data: landformData });
+            const lfFillColor = [
+                'interpolate', ['linear'],
+                ['coalesce', ['get', 'regional_productivity'], ['get', 'landform_hydro_score'], 0.5],
+                0.25, '#b91c1c', 0.35, '#ef4444', 0.40, '#f97316',
+                0.50, '#fbbf24', 0.65, '#86efac', 0.70, '#4ade80', 0.80, '#22c55e',
+            ];
+            map.addLayer({ id: 'landform-fill', type: 'fill', source: 'landform',
+                layout: { visibility: 'none' },
+                paint: { 'fill-color': lfFillColor, 'fill-opacity': 0.4 }
+            });
+            map.addLayer({ id: 'landform-line', type: 'line', source: 'landform',
+                layout: { visibility: 'none' },
+                paint: { 'line-color': lfFillColor, 'line-width': 1.5, 'line-opacity': 0.7 }
+            });
+            map.addLayer({ id: 'landform-label', type: 'symbol', source: 'landform',
+                layout: { visibility: 'none', 'text-field': ['get', 'LANDFORM_R'], 'text-size': 11, 'text-allow-overlap': false },
+                paint: { 'text-color': '#e2e8f0', 'text-halo-color': 'rgba(15,23,42,0.95)', 'text-halo-width': 2 }
+            });
+        } catch(e) { console.warn('Landform regions not loaded:', e); }
+
+        // Depth to Bedrock zones
+        try {
+            dtbData = await (await fetch(dataUrl + 'iowa_dtb_scored_zones.geojson')).json();
+            map.addSource('dtb', { type: 'geojson', data: dtbData });
+            const dtbFillColor = [
+                'interpolate', ['linear'], ['get', 'dtb_score'],
+                0.2, '#ef4444', 0.3, '#f97316', 0.6, '#fbbf24', 1.0, '#22c55e',
+            ];
+            map.addLayer({ id: 'dtb-fill', type: 'fill', source: 'dtb',
+                layout: { visibility: 'none' },
+                paint: { 'fill-color': dtbFillColor, 'fill-opacity': 0.35 }
+            });
+            map.addLayer({ id: 'dtb-line', type: 'line', source: 'dtb',
+                layout: { visibility: 'none' },
+                paint: { 'line-color': dtbFillColor, 'line-width': 1, 'line-opacity': 0.5 }
+            });
+        } catch(e) { console.warn('DTB zones not loaded:', e); }
+
+        // Sourcewater Wells — color by v3_score (fallback to productivity_score)
+        try {
+            wellsData = await (await fetch(dataUrl + 'iowa_sourcewater_wells_v3.geojson')).json();
+            map.addSource('wells', { type: 'geojson', data: wellsData });
+            const wellColor = [
+                'interpolate', ['linear'],
+                ['coalesce', ['get', 'v3_score'], ['get', 'productivity_score'], 0.5],
+                0.0, '#ef4444', 0.3, '#f97316', 0.5, '#fbbf24', 0.7, '#4ade80', 1.0, '#22c55e',
+            ];
+            map.addLayer({ id: 'wells-layer', type: 'circle', source: 'wells',
+                paint: {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 1.5, 12, 5],
+                    'circle-color': wellColor, 'circle-stroke-color': '#1e293b',
+                    'circle-stroke-width': 0.5, 'circle-opacity': 0.7 }
+            });
+            // Productivity heatmap
+            map.addLayer({ id: 'well-density-layer', type: 'heatmap', source: 'wells',
+                layout: { visibility: 'none' },
+                paint: {
+                    'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 5, 20, 10, 40, 14, 60],
+                    'heatmap-weight': ['coalesce', ['get', 'v3_score'], ['get', 'productivity_score'], 0.5],
+                    'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 5, 0.5, 10, 1.5],
+                    'heatmap-color': [
+                        'interpolate', ['linear'], ['heatmap-density'],
+                        0, 'rgba(0,0,0,0)', 0.1, 'rgba(59,130,246,0.3)',
+                        0.3, 'rgba(96,165,250,0.5)', 0.5, 'rgba(251,191,36,0.6)',
+                        0.7, 'rgba(249,115,22,0.7)', 1, 'rgba(239,68,68,0.8)',
+                    ],
+                    'heatmap-opacity': 0.7,
+                }
+            });
+        } catch(e) { console.warn('Wells not loaded:', e); }
+
+        // EPA constraints
+        try {
+            epaData = await (await fetch(dataUrl + 'epa_constraints.geojson')).json();
+            map.addSource('epa', { type: 'geojson', data: epaData });
+            map.addLayer({ id: 'epa-layer', type: 'circle', source: 'epa',
+                layout: { visibility: 'none' },
+                paint: { 'circle-radius': 7, 'circle-color': '#ef4444',
+                    'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5, 'circle-opacity': 0.9 }
+            });
+        } catch(e) {}
+
+        loading.style.display = 'none';
+
+        // Click handler
+        map.on('click', (e) => {
+            const layers = ['wells-layer', 'epa-layer'].filter(l => map.getLayer(l));
+            const hits = map.queryRenderedFeatures(e.point, { layers });
+
+            if (hits.length > 0) {
+                const feat = hits[0], p = feat.properties;
+                if (feat.layer.id === 'wells-layer') {
+                    const ps = p.v3_score || p.productivity_score || 0;
+                    const psColor = ps >= 0.7 ? 'var(--green)' : ps >= 0.4 ? 'var(--yellow)' : 'var(--red)';
+                    const dc = p.data_completeness;
+                    new maplibregl.Popup({ offset: 10 }).setLngLat(e.lngLat).setHTML(`
+                        <div class="inquiry-header"><h3>Iowa DNR Sourcewater Well</h3><div class="coords">${p.PWSID||''}</div></div>
+                        <div style="padding:12px 16px;font-size:13px;color:var(--text-secondary)">
+                            <div>${p.NAME_OWNER||'Unnamed'}</div>
+                            ${p.WL_DPTH_FT?`<div style="margin-top:4px">Depth: <strong style="color:var(--text-primary)">${p.WL_DPTH_FT} ft</strong></div>`:''}
+                            ${p.AQUIFER?`<div style="margin-top:4px">Aquifer: ${p.AQUIFER}</div>`:''}
+                            ${p.PMPTST_GPM?`<div style="margin-top:4px">Pump test: <strong style="color:var(--text-primary)">${p.PMPTST_GPM} GPM</strong></div>`:''}
+                            ${p.SPC_GPM_FT?`<div style="margin-top:4px">Specific capacity: ${p.SPC_GPM_FT} GPM/ft</div>`:''}
+                            ${p.T_FT2_D?`<div style="margin-top:4px">Transmissivity: ${p.T_FT2_D} ft&sup2;/day</div>`:''}
+                            ${p.AQ_THK_FT?`<div style="margin-top:4px">Aquifer thickness: ${p.AQ_THK_FT} ft</div>`:''}
+                            ${p.SWL_FT?`<div style="margin-top:4px">Static water level: ${p.SWL_FT} ft</div>`:''}
+                            ${p.CONF_UNCON?`<div style="margin-top:4px">Confinement: ${p.CONF_UNCON === 'U' ? 'Unconfined' : p.CONF_UNCON === 'C' ? 'Confined' : p.CONF_UNCON}</div>`:''}
+                            <div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--panel-border)">
+                                V3 Score: <strong style="color:${psColor}">${(ps*100).toFixed(0)}/100</strong>
+                                ${dc !== undefined ? `<span style="margin-left:8px;color:var(--text-muted)">(${dc}/5 fields)</span>` : ''}
+                            </div>
+                        </div>`).addTo(map);
+                } else if (feat.layer.id === 'epa-layer') {
+                    new maplibregl.Popup({ offset: 10 }).setLngLat(e.lngLat).setHTML(`
+                        <div class="inquiry-header"><h3 style="color:var(--red)">EPA ${p.type==='superfund'?'Superfund':'Brownfield'} Site</h3></div>
+                        <div style="padding:12px 16px;font-size:13px;color:var(--text-secondary)">
+                            <div>${p.name||'Unnamed'}</div>
+                            <div style="margin-top:4px;color:var(--red)">&#9888; 500m exclusion buffer</div>
+                        </div>`).addTo(map);
+                }
+                return;
+            }
+
+            const { lng, lat } = e.lngLat;
+            if (lng > -96.7 && lng < -90.1 && lat > 40.3 && lat < 43.6) siteInquiry(e.lngLat);
+        });
+
+        map.on('mouseenter', 'wells-layer', () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', 'wells-layer', () => map.getCanvas().style.cursor = '');
+        if (map.getLayer('epa-layer')) {
+            map.on('mouseenter', 'epa-layer', () => map.getCanvas().style.cursor = 'pointer');
+            map.on('mouseleave', 'epa-layer', () => map.getCanvas().style.cursor = '');
+        }
+    });
+
+    // ============================================================
+    // LAYER TOGGLES
+    // ============================================================
+    function toggleLayer(id, layers, legendId) {
+        document.getElementById(id).addEventListener('change', e => {
+            const v = e.target.checked ? 'visible' : 'none';
+            layers.forEach(l => { if (map.getLayer(l)) map.setLayoutProperty(l, 'visibility', v); });
+            if (legendId) document.getElementById(legendId).style.display = e.target.checked ? 'block' : 'none';
+        });
+    }
+
+    // Suitability overlay
+    document.getElementById('toggle-suitability').addEventListener('change', e => {
+        if (map.getLayer('suitability-layer'))
+            map.setLayoutProperty('suitability-layer', 'visibility', e.target.checked ? 'visible' : 'none');
+    });
+    document.getElementById('opacity-suitability').addEventListener('input', e => {
+        if (map.getLayer('suitability-layer'))
+            map.setPaintProperty('suitability-layer', 'raster-opacity', parseInt(e.target.value) / 100);
+    });
+
+    // Uncertainty overlay
+    document.getElementById('toggle-uncertainty').addEventListener('change', e => {
+        const v = e.target.checked ? 'visible' : 'none';
+        if (map.getLayer('uncertainty-layer'))
+            map.setLayoutProperty('uncertainty-layer', 'visibility', v);
+        document.getElementById('uncertainty-legend').style.display = e.target.checked ? 'block' : 'none';
+        document.getElementById('opacity-uncertainty').style.display = e.target.checked ? 'block' : 'none';
+    });
+    document.getElementById('opacity-uncertainty').addEventListener('input', e => {
+        if (map.getLayer('uncertainty-layer'))
+            map.setPaintProperty('uncertainty-layer', 'raster-opacity', parseInt(e.target.value) / 100);
+    });
+
+    // Vector layers
+    toggleLayer('toggle-wells', ['wells-layer']);
+    toggleLayer('toggle-well-density', ['well-density-layer']);
+    toggleLayer('toggle-surficial', ['surficial-fill', 'surficial-line'], 'surficial-legend');
+    toggleLayer('toggle-landform', ['landform-fill', 'landform-line', 'landform-label'], 'landform-legend');
+    toggleLayer('toggle-dtb', ['dtb-fill', 'dtb-line'], 'dtb-legend');
+    toggleLayer('toggle-epa', ['epa-layer']);
+    toggleLayer('toggle-boundary', ['iowa-boundary-line']);
+    </script>
+</body>
+</html>

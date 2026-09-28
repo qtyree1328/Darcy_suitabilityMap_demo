@@ -1,0 +1,30 @@
+{
+  "bounds": [
+    -96.64,
+    40.37,
+    -90.14,
+    43.5
+  ],
+  "width": 2048,
+  "height": 0,
+  "model": "v3_rf_kriging",
+  "grid_resolution_deg": 0.02,
+  "architecture": "Random Forest (geological covariates) + Kriging variance confidence",
+  "n_wells": 7299,
+  "rf_features": [
+    "dtb_score",
+    "landform_score",
+    "alluvial_membership"
+  ],
+  "stats": {
+    "p2": 42.7,
+    "p10": 48.2,
+    "p25": 50.1,
+    "p50": 50.6,
+    "p75": 52.1,
+    "p90": 58.0,
+    "p98": 63.1,
+    "mean": 51.1,
+    "std": 3.8
+  }
+}

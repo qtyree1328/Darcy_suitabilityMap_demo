@@ -1,0 +1,2 @@
+data/processed/iowa_surficial.geojson filter=lfs diff=lfs merge=lfs -text
+data/processed/iowa_bedrock.geojson filter=lfs diff=lfs merge=lfs -text
